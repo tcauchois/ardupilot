@@ -114,6 +114,7 @@ private:
     AP_Float _vertAccLim;
 	AP_Float _rollComp;
 	AP_Float _spdWeight;
+    AP_Float _minSinkAirSpd;
 	
 	// throttle demand in the range from 0.0 to 1.0
     float _throttle_dem;
@@ -227,6 +228,12 @@ private:
 	// Time since last update of main TECS loop (seconds)
 	float _DT;
 
+	// TAS to fly at for maximum range (m/s)
+	float _maxRngSpd;
+
+	// conversion factor from EAS to TAS
+	float _EAS2TAS;
+
     // Update the airspeed internal state using a second order complementary filter
     void _update_speed(void);
 
@@ -259,6 +266,9 @@ private:
 
 	// Calculate specific total energy rate limits
 	void _update_STE_rate_lim(void);
+
+	// Calculate increment in airspeed demand during landing
+	void _update_max_rng_spd(void);
 
     // declares a 5point average filter using floats
 	AverageFilterFloat_Size5 _vdot_filter;
