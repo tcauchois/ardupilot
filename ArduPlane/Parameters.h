@@ -100,6 +100,7 @@ public:
         k_param_hil_err_limit,
         k_param_sonar,
         k_param_log_bitmask,
+        k_param_max_rng_mode,
 
         // 100: Arming parameters
         k_param_arming = 100,
@@ -416,6 +417,7 @@ public:
     AP_Float takeoff_throttle_min_accel;
     AP_Int8 takeoff_throttle_delay;
     AP_Int8 level_roll_limit;
+    AP_Int8 max_rng_mode;
 
     // RC channels
     RC_Channel rc_1;
