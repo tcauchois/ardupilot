@@ -30,6 +30,7 @@ private:
 	AP_Float _K_P;
 	AP_Float _K_I;
 	AP_Float _K_D;
+	AP_Float _K_FF;
 	AP_Int16 _max_rate_pos;
 	AP_Int16 _max_rate_neg;
 	AP_Float _roll_ff;

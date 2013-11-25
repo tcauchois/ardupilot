@@ -93,6 +93,14 @@ const AP_Param::GroupInfo AP_PitchController::var_info[] PROGMEM = {
 	// @User: Advanced
 	AP_GROUPINFO("IMAX",      7, AP_PitchController, _imax,        1500),
 
+	// @Param: K_FF
+	// @DisplayName: Forward Gain
+	// @Description: This is the gain from demanded pitch rate to demanded elevator. When set to zero (the default) the value for the feed forward gain within the controller is calculated automatically from P, I and D. Do not change this parameter from zero unless you have read the advanced section in the tuning guide and understand what it is doing. 
+	// @Range: 0.0 2.0
+	// @Increment: 0.1
+	// @User: Advanced
+	AP_GROUPINFO("FF",        8, AP_PitchController, _K_FF,          0.0f),
+
 	AP_GROUPEND
 };
 
@@ -154,7 +162,15 @@ int32_t AP_PitchController::_get_rate_out(float desired_rate, float scaler, bool
 
 	// Calculate equivalent gains so that values for K_P and K_I can be taken across from the old PID law
     // No conversion is required for K_D
-	float kp_ff = max((_K_P - _K_I * _tau) * _tau  - _K_D , 0) / _ahrs.get_EAS2TAS();
+	// If _K_FF is non-zero, do not perform conversion (advanced user option)
+	if (_K_FF <= 0.001f) 
+	{
+	    float kp_ff = max((_K_P - _K_I * _tau) * _tau  - _K_D , 0) / _ahrs.get_EAS2TAS();
+	}
+	else 
+	{
+	    float kp_ff = max(_K_FF , 0.0f) / _ahrs.get_EAS2TAS();
+	}
 	
 	// Calculate the demanded control surface deflection
 	// Note the scaler is applied again. We want a 1/speed scaler applied to the feed-forward
