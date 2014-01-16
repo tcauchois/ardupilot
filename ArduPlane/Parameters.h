@@ -97,7 +97,6 @@ public:
         k_param_ground_steer_alt,        
         k_param_ground_steer_dps,
         k_param_rally_limit_km,
-        k_param_max_rng_mode,
         k_param_hil_err_limit,
         k_param_sonar,
         k_param_log_bitmask,
