@@ -60,7 +60,10 @@ public:
 	// should return between -9000 to +9000
 	int32_t get_pitch_demand(void) { return int32_t(_pitch_dem * 5729.5781f);}
 	
-	// Rate of change of velocity along X body axis in m/s^2
+    // demanded vertical acceleration demand in m/s^2
+    float get_accelD_demand(void) { return _accel_dem;}
+
+    // Rate of change of velocity along X body axis in m/s^2
 	float get_VXdot(void) { return _vel_dot; }
 
 	// log data on internal state of the controller. Called at 10Hz
@@ -114,6 +117,7 @@ private:
     AP_Float _vertAccLim;
 	AP_Float _rollComp;
 	AP_Float _spdWeight;
+    AP_Float _kVel;
 	
 	// throttle demand in the range from 0.0 to 1.0
     float _throttle_dem;
@@ -199,7 +203,13 @@ private:
 	// pitch demand before limiting
 	float _pitch_dem_unc;
 
-	// Maximum and minimum specific total energy rate limits
+    // vertical acceleration demand
+    float _accel_dem;
+
+    // vertical velocity demand
+    float _vel_dem;
+
+    // Maximum and minimum specific total energy rate limits
 	float _STEdot_max;
 	float _STEdot_min;
 

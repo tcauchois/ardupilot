@@ -3,6 +3,13 @@
 //****************************************************************
 // Function that controls aileron/rudder, elevator, rudder (if 4 channel control) and throttle to produce desired attitude and airspeed.
 //****************************************************************
+#if CONFIG_HAL_BOARD == HAL_BOARD_AVR_SITL
+ #include <stdio.h>
+ # define Debug(fmt, args ...)  do {printf("%s:%d: " fmt "\n", __FUNCTION__, __LINE__, ## args); hal.scheduler->delay(1); } while(0)
+#else
+ # define Debug(fmt, args ...)
+#endif
+//Debug("%.2f %.2f %.2f %.2f \n", var1, var2, var3, var4);
 
 
 /*
@@ -102,6 +109,40 @@ static void stabilize_pitch(float speed_scaler)
     channel_pitch->servo_out = pitchController.get_servo_out(demanded_pitch - ahrs.pitch_sensor, 
                                                              speed_scaler, 
                                                              disable_integrator);
+}
+
+/*
+  This is a combined roll and pitch control function. It uses demanded
+  horizontal acceleration from  L1 guidance and vertical acceleration from
+  TECS and the roll and pitch limits to control the plane during auto flight modes
+  stabilize the plane at the given attitude.
+ */
+static void control_roll_pitch(float speed_scaler)
+{
+    // get vertical acceleratio demand from TECS (down is positive)
+    float navAccVertDem = SpdHgt_Controller->get_accelD_demand();
+    // get horizontal acceleration demand from L1 controller (right is positive)
+    float navAccHorizDem = nav_controller->lateral_acceleration();
+    // calculate required roll angle
+    float nav_roll = atan(navAccHorizDem / constrain_float(GRAVITY_MSS - navAccVertDem , 0.1f, 20.0f));
+    nav_roll_cd = 100*int32_t(degrees(nav_roll));
+    nav_roll_cd = constrain_int32(nav_roll_cd, -roll_limit_cd, roll_limit_cd);
+    // calculate the normal acceleration required to achieve navAccVertDem at the current roll angle
+    float accNormal = (GRAVITY_MSS - navAccVertDem) / constrain_float(cosf(ahrs.roll), 0.1f, 1.0f);
+    // calculate the resultant horizontal acceleration that will then be achieved at the current bank angle
+    float navAccHoriz = accNormal * sinf(ahrs.roll);
+    // calculate the required pitch rate
+    float pitchRateDem = (navAccHoriz * sinf(ahrs.roll) - navAccVertDem * cosf(ahrs.roll)) / constrain_float(airspeed.get_airspeed() * airspeed.get_EAS2TAS(), 0.7f * aparm.airspeed_min, 1.4f * aparm.airspeed_max);
+    Debug("%.2f %.2f %.2f %.2f \n", navAccVertDem, navAccHorizDem, accNormal, pitchRateDem);
+    pitchRateDem = degrees(pitchRateDem);
+    bool disable_integrator = false;
+    if (control_mode == STABILIZE && channel_roll->control_in != 0) {
+        disable_integrator = true;
+    }
+    channel_roll->servo_out = rollController.get_servo_out(nav_roll_cd - ahrs.roll_sensor,
+                                                           speed_scaler,
+                                                           disable_integrator);
+    channel_pitch->servo_out = pitchController.get_rate_out(pitchRateDem, speed_scaler);
 }
 
 /*
@@ -325,8 +366,9 @@ static void stabilize()
         if (g.stick_mixing == STICK_MIXING_FBW && control_mode != STABILIZE) {
             stabilize_stick_mixing_fbw();
         }
-        stabilize_roll(speed_scaler);
-        stabilize_pitch(speed_scaler);
+        //stabilize_roll(speed_scaler);
+        //stabilize_pitch(speed_scaler);
+        control_roll_pitch(speed_scaler);
         if (g.stick_mixing == STICK_MIXING_DIRECT || control_mode == STABILIZE) {
             stabilize_stick_mixing_direct();
         }

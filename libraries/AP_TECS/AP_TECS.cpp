@@ -109,6 +109,13 @@ const AP_Param::GroupInfo AP_TECS::var_info[] PROGMEM = {
 	// @User: User
     AP_GROUPINFO("SINK_MAX",  11, AP_TECS, _maxSinkRate, 5.0f),
 
+    // @Param: K_VEL
+    // @DisplayName: Gain from vertical velocity error to demanded vertical acceleration
+    // @Description: This sets the maximum descent rate that the controller will use.  If this value is too large, the aircraft will reach the pitch angle limit first and be enable to achieve the descent rate. This should be set to a value that can be achieved at the lower pitch angle limit.
+    // @Increment: 0.05
+    // @User: User
+    AP_GROUPINFO("K_VEL", 12, AP_TECS, _kVel, 1.0f),
+
     AP_GROUPEND
 };
 
@@ -536,7 +543,6 @@ void AP_TECS::_update_pitch(void)
     // Rate limit the pitch demand to comply with specified vertical
     // acceleration limit
     float ptchRateIncr = _DT * _vertAccLim / _integ5_state;
-
     if ((_pitch_dem - _last_pitch_dem) > ptchRateIncr)
     {
 		_pitch_dem = _last_pitch_dem + ptchRateIncr;
@@ -546,6 +552,14 @@ void AP_TECS::_update_pitch(void)
 		_pitch_dem = _last_pitch_dem - ptchRateIncr;
 	}
 	_last_pitch_dem = _pitch_dem;
+
+    // Calculate a vertical velocity demand (down is positive) from the pitch demand
+    // This is temporary until we move to an accel vector based controller architecture
+    _vel_dem = - _pitch_dem * _integ5_state;
+
+    // Calculate a vertical acceleration demand that respects limits using a simple proportional control loop;
+    _accel_dem = constrain_float(_kVel *(_integ2_state + _vel_dem), -_vertAccLim, _vertAccLim);
+
 }
 
 void AP_TECS::_initialise_states(int32_t ptchMinCO_cd, float hgt_afe) 

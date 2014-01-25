@@ -52,7 +52,10 @@ public:
 	// should return -9000 to +9000
 	virtual int32_t get_pitch_demand(void)=0;
 	
-	// Rate of change of velocity along X body axis in m/s^2
+    // demanded down vertical acceleration m/sec^2
+    virtual float get_accelD_demand(void)=0;
+
+    // Rate of change of velocity along X body axis in m/s^2
     virtual float get_VXdot(void)=0;
 	
 	// log data on internal state of the controller. Called at 10Hz
