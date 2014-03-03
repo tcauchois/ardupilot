@@ -566,13 +566,14 @@ void AP_TECS::_update_pitch(void)
 
     // Calculate vertical acceleration upper and lower limit required to respect pitch angle limits
     // and also respect pre-set accel limits
-    float accDemMax = _kPtch * (_PITCHmaxf - _ahrs.pitch) * _integ5_state;
-    if (accDemMax > _vertAccLim) {
-        accDemMax = _vertAccLim;
-    }
-    float accDemMin = _kPtch * (_PITCHminf - _ahrs.pitch) * _integ5_state;
+    // Positive acceleration is down
+    float accDemMin = _kPtch * (_ahrs.pitch - _PITCHmaxf) * _integ5_state;
     if (accDemMin < -_vertAccLim) {
         accDemMin = -_vertAccLim;
+    }
+    float accDemMax = _kPtch * (_ahrs.pitch - _PITCHminf) * _integ5_state;
+    if (accDemMax > _vertAccLim) {
+        accDemMax = _vertAccLim;
     }
 
     // Calculate a vertical acceleration demand that respects limits using a simple proportional control loop;
