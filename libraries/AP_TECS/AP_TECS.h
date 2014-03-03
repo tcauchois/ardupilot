@@ -118,6 +118,7 @@ private:
 	AP_Float _rollComp;
 	AP_Float _spdWeight;
     AP_Float _kVel;
+    AP_Float _kPtch;
 	
 	// throttle demand in the range from 0.0 to 1.0
     float _throttle_dem;

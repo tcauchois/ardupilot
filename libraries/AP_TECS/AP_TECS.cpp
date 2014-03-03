@@ -116,6 +116,13 @@ const AP_Param::GroupInfo AP_TECS::var_info[] PROGMEM = {
     // @User: User
     AP_GROUPINFO("K_VEL", 12, AP_TECS, _kVel, 1.0f),
 
+    // @Param: K_PTCH
+    // @DisplayName: Gain from pitch error to demanded pitch rate
+    // @Description: This sets the gain from pitch error to pitch rate that is used to prevent the pitch angle exceding limits when operating in acceleration vector mode.
+    // @Increment: 0.1
+    // @User: Advanced
+    AP_GROUPINFO("K_PTCH", 13, AP_TECS, _kPtch, 2.0f),
+
     AP_GROUPEND
 };
 
@@ -557,9 +564,19 @@ void AP_TECS::_update_pitch(void)
     // This is temporary until we move to an accel vector based controller architecture
     _vel_dem = - _pitch_dem * _integ5_state;
 
-    // Calculate a vertical acceleration demand that respects limits using a simple proportional control loop;
-    _accel_dem = constrain_float(_kVel *(_integ2_state + _vel_dem), -_vertAccLim, _vertAccLim);
+    // Calculate vertical acceleration upper and lower limit required to respect pitch angle limits
+    // and also respect pre-set accel limits
+    float accDemMax = _kPtch * (_PITCHmaxf - _ahrs.pitch) * _integ5_state;
+    if (accDemMax > _vertAccLim) {
+        accDemMax = _vertAccLim;
+    }
+    float accDemMin = _kPtch * (_PITCHminf - _ahrs.pitch) * _integ5_state;
+    if (accDemMin < -_vertAccLim) {
+        accDemMin = -_vertAccLim;
+    }
 
+    // Calculate a vertical acceleration demand that respects limits using a simple proportional control loop;
+    _accel_dem = constrain_float(_kVel * (_integ2_state + _vel_dem), accDemMin, accDemMax);
 }
 
 void AP_TECS::_initialise_states(int32_t ptchMinCO_cd, float hgt_afe) 
