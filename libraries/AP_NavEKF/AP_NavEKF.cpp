@@ -301,6 +301,14 @@ const AP_Param::GroupInfo NavEKF::var_info[] PROGMEM = {
     // @User: advanced
     AP_GROUPINFO("GLITCH_RAD",    24, NavEKF, _gpsGlitchRadiusMax, GLITCH_RADIUS_DEFAULT),
 
+    // @Param: MAG_SCALER
+    // @DisplayName: Magnetometer measurement noise rate scaler (sec/rad)
+    // @Description: This controls how much the EKF increases it's assumed magnetometer measurement error as a function of the angular rate.
+    // @Range: 0.005 - 0.05
+    // @Increment: 0.005
+    // @User: advanced
+    AP_GROUPINFO("MAG_SCALER",    25, NavEKF, _magVarRateScale, 0.05f),
+
     AP_GROUPEND
 };
 
@@ -342,7 +350,6 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro) :
     _hgtRetryTimeMode0      = 10000;    // Height retry time with vertical velocity measurement (msec)
     _hgtRetryTimeMode12     = 5000;     // Height retry time without vertical velocity measurement (msec)
     _magFailTimeLimit_ms    = 10000;     // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
-    _magVarRateScale        = 0.01f;    // scale factor applied to magnetometer variance due to angular rate
     _gyroBiasNoiseScaler    = 2.0f;     // scale factor applied to gyro bias state process noise when on ground
     _msecGpsAvg             = 200;      // average number of msec between GPS measurements
     _msecHgtAvg             = 100;      // average number of msec between height measurements
