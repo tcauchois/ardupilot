@@ -96,6 +96,14 @@ const AP_Param::Info var_info[] PROGMEM = {
     // @User: Standard
     GSCALAR(kff_rudder_mix,         "KFF_RDDRMIX",    RUDDER_MIX),
 
+    // @Param: KFF_AILMIX
+    // @DisplayName: Aileron Mix
+    // @Description: The amount of rudder mixed into aileron movement 0 = 0 %, 1 = 100%
+    // @Range: 0 1
+    // @Increment: 0.01
+    // @User: Standard
+    GSCALAR(kff_aileron_mix,         "KFF_AILMIX",    AILERON_MIX),
+
     // @Param: KFF_THR2PTCH
     // @DisplayName: Throttle to Pitch Mix
     // @Description: Throttle to pitch feed-forward gain.

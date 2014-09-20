@@ -88,6 +88,8 @@ static void stabilize_roll(float speed_scaler)
     channel_roll->servo_out = rollController.get_servo_out(nav_roll_cd - ahrs.roll_sensor, 
                                                            speed_scaler, 
                                                            disable_integrator);
+    channel_roll->servo_out += steering_control.rudder * g.kff_aileron_mix;
+    channel_roll->servo_out = constrain_int16(channel_roll->servo_out, -4500, 4500);
 }
 
 /*
