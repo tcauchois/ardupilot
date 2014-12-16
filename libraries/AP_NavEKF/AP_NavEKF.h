@@ -460,6 +460,9 @@ private:
     bool hgtTimeout;                // boolean true if height measurements have failed innovation consistency check and timed out
     bool magTimeout;                // boolean true if magnetometer measurements have failed for too long and have timed out
     bool badMag;                    // boolean true if the magnetometer is declared to be producing bad data
+    bool filterDiverged;            // boolean true if the filter has diverged
+    bool IMUfailed;                 // boolean true if the IMU has been declared failed
+    bool IMUfailing;                // boolean true if the IMU has been declared as failing
 
     float gpsNoiseScaler;           // Used to scale the  GPS measurement noise and consistency gates to compensate for operation with small satellite counts
     Vector31 Kfusion;               // Kalman gain vector
@@ -482,7 +485,8 @@ private:
     Vector3f earthRateNED;          // earths angular rate vector in NED (rad/s)
     Vector3f dVelIMU1;              // delta velocity vector in XYZ body axes measured by IMU1 (m/s)
     Vector3f dVelIMU2;              // delta velocity vector in XYZ body axes measured by IMU2 (m/s)
-    Vector3f dAngIMU;               // delta angle vector in XYZ body axes measured by the IMU (rad)
+    Vector3f dAngIMU1;               // delta angle vector in XYZ body axes measured by IMU1 (rad)
+    Vector3f dAngIMU2;               // delta angle vector in XYZ body axes measured by IMU2 (rad)
     ftype dtIMU;                    // time lapsed since the last IMU measurement (sec)
     ftype dt;                       // time lapsed since the last covariance prediction (sec)
     ftype hgtRate;                  // state for rate of change of height filter
@@ -547,7 +551,8 @@ private:
     uint32_t timeAtLastAuxEKF_ms;   // last time the auxilliary filter was run to fuse range or optical flow measurements
     uint32_t secondLastFixTime_ms;  // time of second last GPS fix used to determine how long since last update
     uint32_t lastHealthyMagTime_ms; // time the magnetometer was last declared healthy
-    Vector3f lastAngRate;           // angular rate from previous IMU sample used for trapezoidal integrator
+    Vector3f lastAngRate1;          // angular rate from previous IMU1 sample used for trapezoidal integrator
+    Vector3f lastAngRate2;          // angular rate from previous IMU2 sample used for trapezoidal integrator
     Vector3f lastAccel1;            // acceleration from previous IMU1 sample used for trapezoidal integrator
     Vector3f lastAccel2;            // acceleration from previous IMU2 sample used for trapezoidal integrator
     Matrix22 nextP;                 // Predicted covariance matrix before addition of process noise to diagonals
@@ -655,6 +660,12 @@ private:
         ftype pd;
         ftype losPred[2];
     } flow_state;
+
+    // Used by IMU fault detection and isolation logic
+    uint32_t IMUfailedCount;        // net number of IMU fails
+    Vector3f delVelSumIMU1;         // sum of delta velocities for IMU1 used by IMU acel fault isolation logic
+    Vector3f delVelSumIMU2;         // sum of delta velocities for IMU2 used by IMU acel fault isolation logic
+    float dtIMUsum;                 // sum of IMU delta time used by IMU acel fault isolation logic
 
     struct {
         bool bad_xmag:1;

@@ -1056,12 +1056,44 @@ void NavEKF::UpdateStrapdownEquationsNED()
     Quaternion deltaQuat; // quaternion from last to current time step
     const Vector3f gravityNED(0, 0, GRAVITY_MSS); // NED gravity vector m/s^2
 
-    // remove sensor bias errors
-    correctedDelAng = dAngIMU - state.gyro_bias;
+    // remove accelerometer sensor bias errors
     correctedDelVel1 = dVelIMU1;
     correctedDelVel2 = dVelIMU2;
     correctedDelVel1.z -= state.accel_zbias1;
     correctedDelVel2.z -= state.accel_zbias2;
+
+    // calculate a length of the difference between the two IMU accel vectors
+    // this will be used to determine if a significant accelerometer fault has occurred
+    Vector3f delVelDiff = correctedDelVel1 - correctedDelVel2;
+
+    // If the difference length exceeds the hard fault threshold and the IMU fail status hasn't been set
+    // then isolate the IMU that differs the most from the previous blended value. This will protect
+    // against large accelerometer or IMU data corruption errors that can cause significant problems with
+    // the inertial solution before the next GPS measurement is available to adjudicate.
+    // Once an IMU is declared as failed, it is isolated inside readIMUData, so this logic is intended to
+    // provide some interim protection
+    if ((delVelDiff.length() / dtIMU) > 10.0f && !IMUfailed) {
+        if ((correctedDelVel2 - correctedDelVel12).length() > (correctedDelVel1 - correctedDelVel12).length()) {
+            IMU1_weighting = 1.0f;
+            // accelerometer don't use gyros from IMU 2
+            correctedDelAng = dAngIMU1 - state.gyro_bias;
+        } else {
+            IMU1_weighting = 0.0f;
+            // don't use gyro's from IMU 1
+            correctedDelAng = dAngIMU2 - state.gyro_bias;
+        }
+    } else if (IMUfailing){
+        // if failing use weighted average of gyro's from both IMU's to reduce the impact of corrupted gyro data
+        correctedDelAng = dAngIMU1 * IMU1_weighting + dAngIMU2 * (1.0f - IMU1_weighting) - state.gyro_bias;
+    } else {
+        // if healthy use average of gyro's from both IMU's
+        correctedDelAng = (dAngIMU1 + dAngIMU2) * 0.5f - state.gyro_bias;
+    }
+
+    // increment the summed delta velocities and time used to check for IMU differences during innovation consisitency checks
+    delVelSumIMU1 += correctedDelVel1;
+    delVelSumIMU2 += correctedDelVel2;
+    dtIMUsum += dtIMU;
 
     // use weighted average of both IMU units for delta velocities
     correctedDelVel12 = correctedDelVel1 * IMU1_weighting + correctedDelVel2 * (1.0f - IMU1_weighting);
@@ -1965,22 +1997,20 @@ void NavEKF::FuseVelPosNED()
                 varInnovVelPos[i] = P[stateIndex][stateIndex] + R_OBS[i];
                 // calculate error weightings for single IMU velocity states using
                 // observation error to normalise
-                float R_hgt;
+                float R_vel;
                 if (i == 2) {
-                    R_hgt = sq(constrain_float(_gpsVertVelNoise, 0.05f, 5.0f));
+                    R_vel = sq(constrain_float(_gpsVertVelNoise, 0.05f, 5.0f));
                 } else {
-                    R_hgt = sq(constrain_float(_gpsHorizVelNoise, 0.05f, 5.0f));
+                    R_vel = sq(constrain_float(_gpsHorizVelNoise, 0.05f, 5.0f));
                 }
-                K1 += R_hgt / (R_hgt + sq(velInnov1[i]));
-                K2 += R_hgt / (R_hgt + sq(velInnov2[i]));
+                K1 += R_vel / (R_vel + sq(velInnov1[i]));
+                K2 += R_vel / (R_vel + sq(velInnov2[i]));
                 // sum the innovation and innovation variances
                 innovVelSumSq += sq(velInnov[i]);
                 varVelSum += varInnovVelPos[i];
             }
-            // calculate weighting used by fuseVelPosNED to do IMU accel data blending
-            // this is used to detect and compensate for aliasing errors with the accelerometers
-            // provide for a first order lowpass filter to reduce noise on the weighting if required
-            IMU1_weighting = 1.0f * (K1 / (K1 + K2)) + 0.0f * IMU1_weighting; // filter currently inactive
+            // calculate IMU1 accelerometer weighting
+            calcIMU_Weighting(K1, K2);
             // apply an innovation consistency threshold test, but don't fail if bad IMU data
             // calculate the test ratio
             velTestRatio = innovVelSumSq / (varVelSum * sq(_gpsVelInnovGate));
@@ -2249,7 +2279,7 @@ void NavEKF::FuseMagnetometer()
             MagPred[2] = DCM[2][0]*magN + DCM[2][1]*magE  + DCM[2][2]*magD + magZbias;
 
             // scale magnetometer observation error with total angular rate
-            R_MAG = sq(constrain_float(_magNoise, 0.01f, 0.5f)) + sq(_magVarRateScale*dAngIMU.length() / dtIMU);
+            R_MAG = sq(constrain_float(_magNoise, 0.01f, 0.5f)) + sq(_magVarRateScale*correctedDelAng.length() / dtIMU);
 
             // calculate observation jacobians
 			SH_MAG[0] = 2*magD*q3 + 2*magE*q2 + 2*magN*q1;
@@ -3922,9 +3952,10 @@ void NavEKF::ConstrainStates()
 // update IMU delta angle and delta velocity measurements
 void NavEKF::readIMUData()
 {
-    Vector3f angRate;   // angular rate vector in XYZ body axes measured by the IMU (rad/s)
-    Vector3f accel1;    // acceleration vector in XYZ body axes measured by IMU1 (m/s^2)
-    Vector3f accel2;    // acceleration vector in XYZ body axes measured by IMU2 (m/s^2)
+    Vector3f angRate1;   // angular rate vector in XYZ body axes measured by IMU1 (rad/s)
+    Vector3f angRate2;   // angular rate vector in XYZ body axes measured by IMU2 (rad/s)
+    Vector3f accel1;     // acceleration vector in XYZ body axes measured by IMU1 (m/s^2)
+    Vector3f accel2;     // acceleration vector in XYZ body axes measured by IMU2 (m/s^2)
 
     // the imu sample time is sued as a common time reference throughout the filter
     imuSampleTime_ms = hal.scheduler->millis();
@@ -3941,22 +3972,38 @@ void NavEKF::readIMUData()
         accel2 = accel1;
     }
 
-    // average the available gyro sensors
-    angRate.zero();
-    uint8_t gyro_count = 0;
-    for (uint8_t i = 0; i<_ahrs->get_ins().get_gyro_count(); i++) {
-        if (_ahrs->get_ins().get_gyro_health(i)) {
-            angRate += _ahrs->get_ins().get_gyro(i);
-            gyro_count++;
+    // get gyro data from dual sensors if data available
+    if (1 < _ahrs->get_ins().get_gyro_count() && _ahrs->get_ins().get_gyro_health(0) && _ahrs->get_ins().get_gyro_health(1)) {
+        angRate1 = _ahrs->get_ins().get_gyro(0);
+        angRate2 = _ahrs->get_ins().get_gyro(1);
+    } else {
+        angRate1 = _ahrs->get_ins().get_gyro(0);
+        angRate2 = angRate1;
+    }
+
+    // if an IMU fault has been declared by the filter then don't use the gyro data from that sensor as there could be corrupted comms
+    if(IMUfailed) {
+        if (IMU1_weighting > 0.5f) {
+            angRate2 = angRate1;
+        } else {
+            angRate1 = angRate2;
         }
     }
-    if (gyro_count != 0) {
-        angRate /= gyro_count;
+
+    // if an IMU is declared failed, then both are set to data from one good IMU
+    if (IMUfailed) {
+        if (IMU1_weighting > 0.5f) {
+            accel2 = accel1;
+        } else {
+            accel1 = accel2;
+        }
     }
 
     // trapezoidal integration
-    dAngIMU     = (angRate + lastAngRate) * dtIMU * 0.5f;
-    lastAngRate = angRate;
+    dAngIMU1     = (angRate1 + lastAngRate1) * dtIMU * 0.5f;
+    lastAngRate1 = angRate1;
+    dAngIMU2     = (angRate2 + lastAngRate2) * dtIMU * 0.5f;
+    lastAngRate2 = angRate2;
     dVelIMU1    = (accel1 + lastAccel1) * dtIMU * 0.5f;
     lastAccel1  = accel1;
     dVelIMU2    = (accel2 + lastAccel2) * dtIMU * 0.5f;
@@ -4332,6 +4379,12 @@ void NavEKF::ZeroVariables()
     rngMeaTime_ms = imuSampleTime_ms;
 
     gpsNoiseScaler = 1.0f;
+    IMU1_weighting = 0.5f;
+    IMUfailed = false;
+    IMUfailedCount = 0;
+    delVelSumIMU1.zero();
+    delVelSumIMU2.zero();
+    dtIMUsum = 0.0f;
     velTimeout = false;
     posTimeout = false;
     hgtTimeout = false;
@@ -4347,7 +4400,8 @@ void NavEKF::ZeroVariables()
     storeIndex = 0;
     lastGyroBias.zero();
 	prevDelAng.zero();
-    lastAngRate.zero();
+    lastAngRate1.zero();
+    lastAngRate2.zero();
     lastAccel1.zero();
     lastAccel2.zero();
     velDotNEDfilt.zero();
@@ -4453,6 +4507,43 @@ bool NavEKF::assume_zero_sideslip(void) const
     // be quite sensitive to a rapid spin of the ground vehicle if
     // traction is lost
     return _ahrs->get_fly_forward() && _ahrs->get_vehicle_class() != AHRS_VEHICLE_GROUND;
+}
+
+// Calculate weighting that is applied to IMU1 accel data to blend data from IMU's 1 and 2
+// This is used to reduce the effect of aliasing and isolate sensor failures
+void NavEKF::calcIMU_Weighting(float K1, float K2)
+{
+    // If the filtered difference between the two IMU accel vectors exceeds a threshold, increment the failed count
+    Vector3f delVelDiffAvg = (delVelSumIMU1 - delVelSumIMU2);
+    if ((delVelDiffAvg.length() / dtIMUsum) > 5.0f) {
+        IMUfailedCount += 1;
+    } else if (IMUfailedCount > 0) {
+        IMUfailedCount -= 1;
+    }
+    // reset the accumulated delta velocities and time
+    delVelSumIMU1.zero();
+    delVelSumIMU2.zero();
+    dtIMUsum = 0.0f;
+    // if the failed count is greater than 10, the IMU is declared permanently failed and is isolated
+    // if greater than 0 , but less or equal to 10, it is declared as failing
+    if (IMUfailedCount > 10 || IMUfailed) {
+        IMUfailed = true;
+        IMUfailing = true;
+    } else if (IMUfailedCount > 0) {
+        IMUfailing = true;
+    } else {
+        IMUfailing = false;
+    }
+    // Isolation is achieved by latching the weighting of the failed IMU to zero
+    if (IMUfailed) {
+        if (IMU1_weighting >= 0.5f) {
+            IMU1_weighting = 1.0f;
+        } else {
+            IMU1_weighting = 0.0f;
+        }
+    } else if (!IMUfailed ){
+        IMU1_weighting = (K1 / (K1 + K2));
+    }
 }
 
 /*
