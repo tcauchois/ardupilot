@@ -198,11 +198,23 @@ Vector3f AP_AHRS_NavEKF::wind_estimate(void)
     return wind;
 }
 
-// return an airspeed estimate if available. return true
-// if we have an estimate
+// If we have either a valid estimate or measurement, return true
+// Return measured data if sensor is healthy, otherwise return an estimate
 bool AP_AHRS_NavEKF::airspeed_estimate(float *airspeed_ret) const
 {
-    return AP_AHRS_DCM::airspeed_estimate(airspeed_ret);
+    bool sensorFailing;
+    bool sensorFailed;
+    float airspeed_est;
+    if (airspeed_sensor_enabled() && EKF.getAirspeedEstimate(sensorFailing,sensorFailed,airspeed_est)) {
+        if (sensorFailing || sensorFailed) {
+            *airspeed_ret = airspeed_est;
+        } else {
+            *airspeed_ret = _airspeed->get_airspeed();
+        }
+        return true;
+    } else {
+        return false;
+    }
 }
 
 // true if compass is being used
@@ -280,6 +292,18 @@ bool AP_AHRS_NavEKF::get_velocity_NED(Vector3f &vec) const
         return true;
     }
     return false;
+}
+
+// return sensor health
+bool AP_AHRS_NavEKF::airSpdSensorHealthy(void) const
+{
+    bool sensorFailing = true;
+    bool sensorFailed = true;
+    float airspeed_est;
+    if (EKF.getAirspeedEstimate(sensorFailing,sensorFailed, airspeed_est)) {
+        return !sensorFailed;
+    }
+    return true;
 }
 
 // return a relative ground position in meters/second, North/East/Down

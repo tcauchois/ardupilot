@@ -96,9 +96,16 @@ public:
     // set home location
     void set_home(const Location &loc);
 
+    // true if we have inertial nav
     bool have_inertial_nav(void) const;
 
+    // NED velocity in m/s
     bool get_velocity_NED(Vector3f &vec) const;
+
+    // return airspeed sensor health status
+    // This will only be valid if using EKF.
+    bool airSpdSensorHealthy(void) const;
+
     bool get_relative_position_NED(Vector3f &vec) const;
 
     // write optical flow measurements to EKF

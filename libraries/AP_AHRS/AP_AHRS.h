@@ -271,6 +271,10 @@ public:
     // true 
     virtual bool get_velocity_NED(Vector3f &vec) const { return false; }
 
+    // return sensor health status
+    // This will only be valid if using EKF.
+    virtual bool airSpdSensorHealthy(void) const { return true; }
+
     // return a position relative to home in meters, North/East/Down
     // order. This will only be accurate if have_inertial_nav() is
     // true 
