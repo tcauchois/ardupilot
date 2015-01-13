@@ -108,6 +108,10 @@ public:
     // return NED velocity in m/s
     void getVelNED(Vector3f &vel) const;
 
+    // return airspeed estimate in m/s
+    // return false if airspeed sensing is not being used or has failed
+    bool getAirspeedEstimate(bool &sensorFailing, bool &sensorFailed, float &aspd) const;
+
     // This returns the specific forces in the NED frame
     void getAccelNED(Vector3f &accelNED) const;
 
@@ -480,6 +484,7 @@ private:
     bool tasTimeout;                // boolean true if true airspeed measurements have failed for too long and have timed out
     bool badMag;                    // boolean true if the magnetometer is declared to be producing bad data
     bool badIMUdata;                // boolean true if the bad IMU data is detected
+    bool aspdSensorFailed;          // boolean true if the airspeed sensor has been failed
 
     float gpsNoiseScaler;           // Used to scale the  GPS measurement noise and consistency gates to compensate for operation with small satellite counts
     Vector31 Kfusion;               // Kalman gain vector
@@ -530,6 +535,7 @@ private:
     ftype varInnovVtas;             // innovation variance output from fusion of airspeed measurements
     bool fuseVtasData;              // boolean true when airspeed data is to be fused
     float VtasMeas;                 // true airspeed measurement (m/s)
+    float EAS2TAS;                  // equivalent to true airspeed conversion factor
     state_elements statesAtVtasMeasTime;  // filter states at the effective measurement time
     bool covPredStep;               // boolean set to true when a covariance prediction step has been performed
     bool magFusePerformed;          // boolean set to true when magnetometer fusion has been perfomred in that time step

@@ -284,7 +284,7 @@ const AP_Param::GroupInfo NavEKF::var_info[] PROGMEM = {
     // @Range: 1 100
     // @Increment: 1
     // @User: Advanced
-    AP_GROUPINFO("EAS_GATE",    21, NavEKF, _tasInnovGate, 10),
+    AP_GROUPINFO("EAS_GATE",    21, NavEKF, _tasInnovGate, 5),
 
     // @Param: MAG_CAL
     // @DisplayName: Magnetometer calibration mode
@@ -384,7 +384,7 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro) :
     gpsFailTimeWithFlow(5000),      // If we have no GPS for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
     hgtRetryTimeMode0(10000),       // Height retry time with vertical velocity measurement (msec)
     hgtRetryTimeMode12(5000),       // Height retry time without vertical velocity measurement (msec)
-    tasRetryTime(5000),             // True airspeed timeout and retry interval (msec)
+    tasRetryTime(10000),             // True airspeed timeout and retry interval (msec)
     magFailTimeLimit_ms(10000),     // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
     magVarRateScale(0.05f),         // scale factor applied to magnetometer variance due to angular rate
     gyroBiasNoiseScaler(2.0f),      // scale factor applied to gyro bias state process noise when on ground
@@ -1047,6 +1047,10 @@ void NavEKF::SelectTasFusion()
 
     // if the filter is initialised, wind states are not inhibited and we have data to fuse, then queue TAS fusion
     tasDataWaiting = (statesInitialised && !inhibitWindStates && (tasDataWaiting || newDataTas));
+    // if wind state estimation is inhibited or states are uninitialised, reset the fault timeout
+    if (!statesInitialised || inhibitWindStates) {
+        tasFailTime = imuSampleTime_ms;
+    }
     // if we have waited too long, set a timeout flag which will force fusion to occur
     bool timeout = ((imuSampleTime_ms - TASmsecPrev) >= TASmsecMax);
     // we don't fuse airspeed measurements if magnetometer fusion has been performed in the same frame, unless timed out or the fuseMeNow option is selected
@@ -1070,7 +1074,7 @@ void NavEKF::SelectBetaFusion()
     // set true when the fusion time interval has triggered
     bool f_timeTrigger = ((imuSampleTime_ms - BETAmsecPrev) >= msecBetaAvg);
     // set true when use of synthetic sideslip fusion is necessary because we have limited sensor data or are dead reckoning position
-    bool f_required = !(use_compass() && useAirspeed() && posHealth);
+    bool f_required = !(use_compass() && (useAirspeed() && !aspdSensorFailed) && posHealth);
     // set true when sideslip fusion is feasible (requires zero sideslip assumption to be valid and use of wind states)
     bool f_feasible = (assume_zero_sideslip() && !inhibitWindStates);
     // use synthetic sideslip fusion if feasible, required, enough time has lapsed since the last fusion and it is not locked out
@@ -3080,7 +3084,6 @@ void NavEKF::FuseAirspeed()
     float vd;
     float vwn;
     float vwe;
-    float EAS2TAS = _ahrs->get_EAS2TAS();
     const float R_TAS = sq(constrain_float(_easNoise, 0.5f, 5.0f) * constrain_float(EAS2TAS, 0.9f, 10.0f));
     Vector3f SH_TAS;
     float SK_TAS;
@@ -3169,9 +3172,13 @@ void NavEKF::FuseAirspeed()
         // fail if the ratio is > 1, but don't fail if bad IMU data
         tasHealth = ((tasTestRatio < 1.0f) || badIMUdata);
         tasTimeout = (imuSampleTime_ms - tasFailTime) > tasRetryTime;
+        // declare the airspeed sensor as failed if it has timed out
+        if (tasTimeout) {
+            aspdSensorFailed = true;
+        }
 
         // test the ratio before fusing data, forcing fusion if airspeed and position are timed out as we have no choice but to try and use airspeed to constrain error growth
-        if (tasHealth || (tasTimeout && posTimeout))
+        if ((tasHealth && !aspdSensorFailed) || (tasTimeout && posTimeout))
         {
 
             // restart the counter
@@ -3545,6 +3552,25 @@ void NavEKF::getAccelNED(Vector3f &accelNED) const {
 void NavEKF::getVelNED(Vector3f &vel) const
 {
     vel = state.velocity;
+}
+
+// Return true if an airspeed estimate and health assessment is available, false if not.
+// The measured flag returns true when the airspeed sensor is healthy
+bool NavEKF::getAirspeedEstimate(bool &sensorFailing, bool &sensorFailed, float &aspd) const
+{
+    if (inhibitWindStates) {
+        return false;
+    }
+    Vector3f windRelVel;
+    windRelVel.x = state.velocity.x - state.wind_vel.x;
+    windRelVel.y = state.velocity.y - state.wind_vel.y;
+    windRelVel.z = state.velocity.z;
+    aspd = windRelVel.length() / constrain_float(EAS2TAS, 0.9f, 10.0f);
+    // send the airspeed sensor health
+    sensorFailing = (varInnovVtas > 1.0f);
+    sensorFailed = !useAirspeed();
+    // If wind and ground velocity states are valid, then the airspeed estimate is considered healthy
+    return (!inhibitWindStates && !(velTimeout || posTimeout));
 }
 
 // return the last calculated NED position relative to the reference point (m).
@@ -4066,7 +4092,8 @@ void NavEKF::readAirSpdData()
     if (aspeed &&
         aspeed->use() &&
         aspeed->last_update_ms() != lastAirspeedUpdate) {
-        VtasMeas = aspeed->get_airspeed() * aspeed->get_EAS2TAS();
+        EAS2TAS = constrain_float(aspeed->get_EAS2TAS(), 0.9f, 10.0f);
+        VtasMeas = aspeed->get_airspeed() * EAS2TAS;
         lastAirspeedUpdate = aspeed->last_update_ms();
         newDataTas = true;
         RecallStates(statesAtVtasMeasTime, (imuSampleTime_ms - msecTasDelay));
@@ -4409,12 +4436,16 @@ void NavEKF::InitialiseVariables()
     gndOffsetValid =  false;
     flowXfailed = false;
     validOrigin = false;
+    aspdSensorFailed = false;
 }
 
 // return true if we should use the airspeed sensor
 bool NavEKF::useAirspeed(void) const
 {
-    return _ahrs->airspeed_sensor_enabled();
+    if (_ahrs->get_airspeed() == NULL || aspdSensorFailed) {
+        return false;
+    }
+    return _ahrs->get_airspeed()->use();
 }
 
 // return true if we should use the range finder sensor
@@ -4586,6 +4617,8 @@ void NavEKF::performArmingChecks()
         // keep position during disarm to provide continuing indication of last known position
         if (vehicleArmed) {
             lastKnownPositionNE.zero();
+            // reset airspeed fault status
+            aspdSensorFailed = false;
         }
         // set various  useage modes based on the condition at arming. These are then held until the vehicle is disarmed.
         if (!vehicleArmed) {
