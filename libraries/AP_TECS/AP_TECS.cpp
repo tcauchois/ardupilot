@@ -217,7 +217,7 @@ void AP_TECS::update_50hz(float hgt_afe)
 	}
 	_update_50hz_last_usec = now;	
 
-	// USe inertial nav verical velocity and height if available
+    // Use inertial nav vertical velocity and height if available
 	Vector3f posned, velned;
 	if (_ahrs.get_velocity_NED(velned) && _ahrs.get_relative_position_NED(posned)) {
 		_climb_rate   = - velned.z;
@@ -255,6 +255,13 @@ void AP_TECS::update_50hz(float hgt_afe)
 
 void AP_TECS::_update_speed(float load_factor)
 {
+    // Use the airspeed estimate if the sensor is enabled, an estimate is available and the sensor is healthy
+    if (_ahrs.airspeed_sensor_enabled() && _ahrs.airspeed_estimate(&_EAS)) {
+        _airSpdSensorHealthy =  _ahrs.airSpdSensorHealthy();
+    } else {
+        _airSpdSensorHealthy = false;
+    }
+
     // Calculate time in seconds since last update
     uint32_t now = hal.scheduler->micros();
 	float DT = max((now - _update_speed_last_usec),0)*1.0e-6f;
@@ -276,7 +283,7 @@ void AP_TECS::_update_speed(float load_factor)
     if (_TASmax < _TASmin) {
         _TASmax = _TASmin;
     }
-    if (_landAirspeed >= 0 && _ahrs.airspeed_sensor_enabled() &&
+    if (_landAirspeed >= 0 && _airSpdSensorHealthy &&
            (_flight_stage == FLIGHT_LAND_APPROACH || _flight_stage== FLIGHT_LAND_FINAL)) {
 		_TAS_dem = _landAirspeed * EAS2TAS;
 		if (_TASmin > _TAS_dem) {
@@ -290,13 +297,6 @@ void AP_TECS::_update_speed(float load_factor)
         _integ4_state = 0.0f;
 		DT            = 0.1f; // when first starting TECS, use a
 							  // small time constant
-    }
-
-    // Get airspeed or default to halfway between min and max if
-    // airspeed is not being used and set speed rate to zero
-    if (!_ahrs.airspeed_sensor_enabled() || !_ahrs.airspeed_estimate(&_EAS)) {
-        // If no airspeed available use average of min and max
-        _EAS = 0.5f * (aparm.airspeed_min.get() + (float)aparm.airspeed_max.get());
     }
 
     // Implement a second order complementary filter to obtain a
@@ -547,7 +547,7 @@ void AP_TECS::_update_throttle(void)
 
 		// Sum the components. 
 		// Only use feed-forward component if airspeed is not being used
-	    if (_ahrs.airspeed_sensor_enabled()) {
+        if (_airSpdSensorHealthy) {
 	        _throttle_dem = _throttle_dem + _integ6_state;
 	    } else {
  	       _throttle_dem = ff_throttle;
@@ -632,7 +632,7 @@ void AP_TECS::_update_pitch(void)
 	// A SKE_weighting of 2 provides 100% priority to speed control. This is used when an underspeed condition is detected. In this instance, if airspeed
 	// rises above the demanded value, the pitch angle will be increased by the TECS controller.
 	float SKE_weighting = constrain_float(_spdWeight, 0.0f, 2.0f);
-    if (!_ahrs.airspeed_sensor_enabled()) {
+    if (!_airSpdSensorHealthy) {
 		SKE_weighting = 0.0f;
     } else if ( _underspeed || _flight_stage == AP_TECS::FLIGHT_TAKEOFF) {
 		SKE_weighting = 2.0f;
@@ -809,7 +809,7 @@ void AP_TECS::update_pitch_throttle(int32_t hgt_dem_cm,
     _update_energies();
 
     // Calculate throttle demand - use simple pitch to throttle if no airspeed sensor
-	if (_ahrs.airspeed_sensor_enabled()) {
+    if (_airSpdSensorHealthy) {
         _update_throttle();
 	} else {
         _update_throttle_option(throttle_nudge);

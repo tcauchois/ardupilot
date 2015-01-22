@@ -246,6 +246,9 @@ private:
 	// counter for demanded sink rate on land final
 	uint8_t _flare_counter;
 
+    // True when airspeed is being measured, not estimated
+    bool _airSpdSensorHealthy;
+
     // Update the airspeed internal state using a second order complementary filter
     void _update_speed(float load_factor);
 
@@ -284,6 +287,7 @@ private:
 
 	// current time constant
 	float timeConstant(void);
+
 };
 
 #define TECS_LOG_FORMAT(msg) { msg, sizeof(AP_TECS::log_TECS_Tuning),	\
