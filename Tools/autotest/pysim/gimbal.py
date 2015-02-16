@@ -42,12 +42,15 @@ class Gimbal3Axis(object):
         self.joint_angles = Vector3()
 
         # physical constraints on joint angles in (roll, pitch, azimuth) order
-        self.lower_joint_limits = Vector3(radians(-40), radians(-135), radians(-7.5))
-        self.upper_joint_limits = Vector3(radians(40),  radians(45),   radians(7.5))
+        self.lower_joint_limits = Vector3(radians(-40), radians(-135), radians(-25))
+        self.upper_joint_limits = Vector3(radians(40),  radians(45),   radians(25))
         self.travelLimitGain = 20
 
         # true gyro bias
         self.true_gyro_bias = Vector3()
+
+        # true accelerometer bias
+        self.true_accel_bias = Vector3(0, 0.5, 0)
 
         ##################################
         # reporting variables. gimbal pushes these to vehicle code over MAVLink at approx 100Hz
@@ -203,7 +206,7 @@ class Gimbal3Axis(object):
         self.delta_angle += self.gyro * delta_t
 
         # calculate accel in gimbal body frame
-        copter_accel_earth = self.vehicle.dcm * self.vehicle.accel_body
+        copter_accel_earth = self.vehicle.dcm * (self.vehicle.accel_body + self.true_accel_bias)
         accel = self.dcm.transposed() * copter_accel_earth
 
         # integrate velocity
