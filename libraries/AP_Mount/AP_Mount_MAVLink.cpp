@@ -4,7 +4,7 @@
 #if AP_AHRS_NAVEKF_AVAILABLE
 #include <GCS_MAVLink.h>
 
-#define MOUNT_DEBUG 0
+#define MOUNT_DEBUG 1
 
 #if MOUNT_DEBUG
 #include <stdio.h>
@@ -173,14 +173,14 @@ void AP_Mount_MAVLink::send_gimbal_report(mavlink_channel_t chan)
                                    _gimbal_report.joint_roll, 
                                    _gimbal_report.joint_pitch, 
                                    _gimbal_report.joint_yaw);
-    float tilt;
-    Vector3f velocity, euler, gyroBias;
-    _ekf.getDebug(tilt, velocity, euler, gyroBias);
 #if MOUNT_DEBUG
-    ::printf("tilt=%.2f euler=(%.2f, %.2f, %.2f) vel=(%.2f, %.2f %.2f)\n",
+    float tilt;
+    Vector3f velocity, euler, gyroBias, accelBias;
+    _ekf.getDebug(tilt, velocity, euler, gyroBias, accelBias);
+    ::printf("tilt=%.2f euler=(%.2f, %.2f, %.2f) accelBias=(%.2f, %.2f %.2f)\n",
              tilt,
              degrees(euler.x), degrees(euler.y), degrees(euler.z),
-             (velocity.x), (velocity.y), (velocity.z));
+             (accelBias.x), (accelBias.y), (accelBias.z));
 #endif
 }
 
