@@ -49,6 +49,7 @@ public:
     typedef VectorN<ftype,13> Vector13;
     typedef VectorN<ftype,14> Vector14;
     typedef VectorN<ftype,15> Vector15;
+    typedef VectorN<ftype,16> Vector16;
     typedef VectorN<ftype,22> Vector22;
     typedef VectorN<ftype,31> Vector31;
     typedef VectorN<ftype,34> Vector34;
@@ -68,6 +69,7 @@ public:
     typedef ftype Vector13[13];
     typedef ftype Vector14[14];
     typedef ftype Vector15[15];
+    typedef ftype Vector16[16];
     typedef ftype Vector22[22];
     typedef ftype Vector31[31];
     typedef ftype Vector34[34];
@@ -84,7 +86,7 @@ public:
     void RunEKF(float delta_time, const Vector3f &delta_angles, const Vector3f &delta_velocity, const Vector3f &joint_angles);
 
     // get some debug information
-    void getDebug(float &tilt, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias) const;
+    void getDebug(float &tilt, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias, Vector3f &accelBias) const;
 
     // get gyro bias data
     void getGyroBias(Vector3f &gyroBias) const;
@@ -98,15 +100,16 @@ private:
     const AP_AHRS_NavEKF &_ahrs;
     const NavEKF &_main_ekf;
 
-    // the states are available in two forms, either as a Vector13 or
+    // the states are available in two forms, either as a Vector16 or
     // broken down as individual elements. Both are equivalent (same
     // memory)
-    Vector13 states;
+    Vector16 states;
     struct state_elements {
         Vector3f    angErr;         // 0..2 rotation vector representing the growth in angle error since the last state correction (rad)
         Vector3f    velocity;       // 3..5 NED velocity (m/s)
         Vector3f    delAngBias;     // 6..8 estimated bias errors in the IMU delta angles
-        Quaternion  quat;           // 9..12 these states are used by the INS prediction only and are not used by the EKF state equations.
+        Vector3f    delVelBias;     // 9..12 estimated bias errors in the IMU delta velocities
+        Quaternion  quat;           // 13..15 these states are used by the INS prediction only and are not used by the EKF state equations.
     } &state;
 
     // data from sensors
@@ -118,7 +121,8 @@ private:
         float gTheta;
     } gSense;
 
-    float Cov[9][9];                // covariance matrix
+    float Cov[12][12];              // covariance matrix
+    float nextCov[12][12];          // Predicted covariance matrix before addition of process noise to diagonals
     Matrix3f Tsn;                   // Sensor to NED rotation matrix
     float TiltCorrection;           // Angle correction applied to tilt from last velocity fusion (rad)
     bool newDataMag;                // true when new magnetometer data is waiting to be used
