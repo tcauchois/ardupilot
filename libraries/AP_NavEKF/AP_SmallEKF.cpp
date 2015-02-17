@@ -146,7 +146,7 @@ void SmallEKF::predictStates()
 
     // transform body delta velocities to delta velocities in the nav frame
     // * and + operators have been overloaded
-    Vector3f delVelNav  = Tsn*gSense.delVel + gravityNED*dtIMU;
+    Vector3f delVelNav  = Tsn*(gSense.delVel - state.delVelBias) + gravityNED*dtIMU;
 
     // sum delta velocities to get velocity
     state.velocity += delVelNav;
