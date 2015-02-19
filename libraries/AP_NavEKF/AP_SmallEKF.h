@@ -78,7 +78,7 @@ public:
 #endif
 
     // Constructor
-    SmallEKF(const AP_AHRS_NavEKF &ahrs);
+    SmallEKF(const AP_AHRS_NavEKF &ahrs, const float& velNoise, const float& magYawNoise, const float& gyrNoise, const float& accNoise, const float& gyroBiasProcessNoise);
 
     // Run the EKF main loop once every time we receive sensor data
     void RunEKF(float delta_time, const Vector3f &delta_angles, const Vector3f &delta_velocity, const Vector3f &joint_angles);
@@ -92,7 +92,8 @@ public:
     // get quaternion data
     void getQuat(Quaternion &quat) const;
 
-    static const struct AP_Param::GroupInfo var_info[];
+    // debug
+    float get_velNoise() const { return _velNoise; }
 
 private:
     const AP_AHRS_NavEKF &_ahrs;
@@ -117,6 +118,13 @@ private:
         float gPsi;
         float gTheta;
     } gSense;
+
+    // Mavlink tuneable parameters (held in mount object)
+    const float& _velNoise;                // velocity measurement noise : m/s
+    const float& _magYawNoise;             // noise in the magnetic heading measurement : rad
+    const float& _gyrNoise;                // gyro process noise : rad/s
+    const float& _accNoise;                // accelerometer process noise : m/s^2
+    const float& _gyroBiasProcessNoise;    // gyro bias state process noise : rad/s
 
     float Cov[9][9];                // covariance matrix
     Matrix3f Tsn;                   // Sensor to NED rotation matrix

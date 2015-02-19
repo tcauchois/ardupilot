@@ -21,22 +21,21 @@
 
 extern const AP_HAL::HAL& hal;
 
-
-// Define tuning parameters
-const AP_Param::GroupInfo SmallEKF::var_info[] PROGMEM = {
-    AP_GROUPEND
-};
-
 // constructor
-SmallEKF::SmallEKF(const AP_AHRS_NavEKF &ahrs) :
+SmallEKF::SmallEKF(const AP_AHRS_NavEKF &ahrs, const float& velNoise, const float& magYawNoise, const float& gyrNoise, const float& accNoise, const float& gyroBiasProcessNoise) :
     _ahrs(ahrs),
+    _velNoise(velNoise),
+    _magYawNoise(magYawNoise),
+    _gyrNoise(gyrNoise),
+    _accNoise(accNoise),
+    _gyroBiasProcessNoise(gyroBiasProcessNoise),
     _main_ekf(ahrs.get_NavEKF_const()),
     state(*reinterpret_cast<struct state_elements *>(&states)),
     FiltInit(false),
     lastMagUpdate(0)
-{
-    AP_Param::setup_object_defaults(this, var_info);
-}
+{}
+
+
 
 // run a 9-state EKF used to calculate orientation
 void SmallEKF::RunEKF(float delta_time, const Vector3f &delta_angles, const Vector3f &delta_velocity, const Vector3f &joint_angles)
@@ -155,15 +154,15 @@ void SmallEKF::predictStates()
 // gyro_bias_state_noise
 void SmallEKF::predictCovariance()
 {
-    float delAngBiasVariance = sq(dtIMU*dtIMU*5E-4f);
+    float delAngBiasVariance = sq(dtIMU*dtIMU*_gyroBiasProcessNoise);
 
-    float daxNoise = sq(dtIMU*0.0087f);
-    float dayNoise = sq(dtIMU*0.0087f);
-    float dazNoise = sq(dtIMU*0.0087f);
+    float daxNoise = sq(dtIMU*_gyrNoise);
+    float dayNoise = sq(dtIMU*_gyrNoise);
+    float dazNoise = sq(dtIMU*_gyrNoise);
 
-    float dvxNoise = sq(dtIMU*0.5f);
-    float dvyNoise = sq(dtIMU*0.5f);
-    float dvzNoise = sq(dtIMU*0.5f);
+    float dvxNoise = sq(dtIMU*_accNoise);
+    float dvyNoise = sq(dtIMU*_accNoise);
+    float dvzNoise = sq(dtIMU*_accNoise);
     float dvx = gSense.delVel.x;
     float dvy = gSense.delVel.y;
     float dvz = gSense.delVel.z;
@@ -553,7 +552,7 @@ void SmallEKF::predictCovariance()
 // Fuse the SmallEKF velocity estimates - this enables alevel reference to be maintained during constant turns
 void SmallEKF::fuseVelocity(bool yawInit)
 {
-    float R_OBS = 0.25f;
+    float R_OBS = _velNoise * _velNoise;
     float innovation[3];
     float varInnov[3];
     Vector3f angErrVec;
@@ -652,7 +651,7 @@ void SmallEKF::fuseCompass()
     float magY = magData.y;
     float magZ = magData.z;
 
-    const float R_MAG = 3e-2f;
+    const float R_MAG = _magYawNoise * _magYawNoise;
 
     // Calculate observation Jacobian
     float t5695 = sq(q0);
