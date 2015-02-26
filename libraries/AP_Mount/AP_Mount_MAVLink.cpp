@@ -14,7 +14,7 @@
 AP_Mount_MAVLink::AP_Mount_MAVLink(AP_Mount &frontend, AP_Mount::mount_state &state, uint8_t instance) :
     AP_Mount_Backend(frontend, state, instance),
     _initialised(false),
-    _ekf(frontend._ahrs),
+    _ekf(frontend._ahrs, frontend._velNoise.get(), frontend._magYawNoise.get(), frontend._gyrNoise.get(), frontend._accNoise.get(), frontend._gyroBiasProcessNoise.get()),
     K_gimbalRate(0.1f),
     angRateLimit(0.5f),
     yawRateFiltPole(10.0f),
