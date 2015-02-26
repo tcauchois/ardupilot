@@ -383,6 +383,38 @@ const AP_Param::GroupInfo AP_Mount::var_info[] PROGMEM = {
     AP_GROUPINFO("2_TYPE",           42, AP_Mount, state[1]._type, 0),
 #endif // AP_MOUNT_MAX_INSTANCES > 1
 
+    // 42 ~ 49 reserved for future parameters
+
+    // @Param: VEL_NOISE
+    // @DisplayName: velocity aiding measurement noise (m/s)
+    // @Description: Increasing it causes the filter to be slower to align, but also means that errors in the aiding velocity from the main navigation filter will perturb the attitude less.
+    // @User: Advanced
+    AP_GROUPINFO("_VEL_NOISE",      50, AP_Mount, _velNoise, 0.5f),
+
+    // @Param: YAW_NOISE
+    // @DisplayName: compass yaw noise (rad)
+    // @Description: Increasing it causes the filter to be slower to align, but also means that compass and compass relative alignmnet errors will perturb the yaw less.
+    // @User: Advanced
+    AP_GROUPINFO("_YAW_NOISE",      51, AP_Mount, _magYawNoise, 0.17f),
+
+    // @Param: GYRO_PNOISE
+    // @DisplayName: Rate gyro noise (rad/s)
+    // @Description: This noise controls the growth of estimated error due to gyro measurement errors excluding bias. Increasing it makes the flter trust the gyro measurements less and other measurements more.
+    // @User: Advanced
+    AP_GROUPINFO("_GYRO_PNOISE",    52, AP_Mount, _gyrNoise, 0.0087f),
+
+    // @Param: ACC_PNOISE
+    // @DisplayName: Accelerometer noise (m/s^2)
+    // @Description: This noise controls the growth of estimated error due to accelerometer measurement errors excluding bias. Increasing it makes the flter trust the accelerometer measurements less and other measurements more.
+    // @User: Advanced
+    AP_GROUPINFO("_ACC_PNOISE",     53, AP_Mount, _accNoise, 0.5f),
+
+    // @Param: GBIAS_PNOISE
+    // @DisplayName: Rate gyro bias process noise (rad/s^2)
+    // @Description: This noise controls the growth of gyro bias state error estimates. Increasing it makes rate gyro bias estimation faster and noisier.
+    // @User: Advanced
+    AP_GROUPINFO("_GBIAS_PNOISE",   54, AP_Mount, _gyroBiasProcessNoise, 5e-4f),
+
     AP_GROUPEND
 };
 
