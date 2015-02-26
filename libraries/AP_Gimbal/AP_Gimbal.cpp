@@ -126,12 +126,26 @@ Vector3f AP_Gimbal::getGimbalRateDemVecTilt(Quaternion quatEst)
         quatEst.to_euler(eulerEst.x, eulerEst.y, eulerEst.z);
 
         //TODO receive target from AP_Mount
-        Vector3f vectorError;
-        vectorError.x = eulerEst.x;
-        vectorError.y = eulerEst.y - _angle_ef_target_rad.y;
-        vectorError.z = 0;
+        quatDem.from_euler(0, _angle_ef_target_rad.y, eulerEst.z);
 
-        Vector3f gimbalRateDemVecTilt = - vectorError * K_gimbalRate;
+        // Divide the demanded quaternion by the estimated to get the error
+        Quaternion quatErr = quatDem / quatEst;
+
+        // Convert to a delta rotation using a small angle appoximation
+        quatErr.normalize();
+        Vector3f vectorError;
+        float scaler;
+        if (quatErr[0] >= 0.0f) {
+            scaler = 2.0f;
+        } else {
+            scaler = -2.0f;
+        }
+        vectorError.x = scaler * quatErr[1];
+        vectorError.y = scaler * quatErr[2];
+        vectorError.z = scaler * quatErr[3];
+
+        // multiply the angle error vector by a gain to calculate a demanded gimbal rate required to control tilt
+        Vector3f gimbalRateDemVecTilt = vectorError * K_gimbalRate;
         return gimbalRateDemVecTilt;
 }
 
