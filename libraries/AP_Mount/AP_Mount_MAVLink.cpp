@@ -158,12 +158,13 @@ void AP_Mount_MAVLink::send_gimbal_report(mavlink_channel_t chan)
                                    _gimbal_report.joint_roll, 
                                    _gimbal_report.joint_el, 
                                    _gimbal_report.joint_az);
-    float tilt;
+    float tiltErr, yawErr;
     Vector3f velocity, euler, gyroBias;
-    _ekf.getDebug(tilt, velocity, euler, gyroBias);
+    _ekf.getDebug(tiltErr, yawErr, velocity, euler, gyroBias);
 #if MOUNT_DEBUG
-    ::printf("tilt=%.2f euler=(%.2f, %.2f, %.2f) vel=(%.2f, %.2f %.2f)\n",
-             tilt,
+    ::printf("tilterr=%.5f yawerr=%.5f euler=(%.2f, %.2f, %.2f) vel=(%.1f, %.1f %.1f)\n",
+             tiltErr,
+             yawErr,
              degrees(euler.x), degrees(euler.y), degrees(euler.z),
              (velocity.x), (velocity.y), (velocity.z));
 #endif
