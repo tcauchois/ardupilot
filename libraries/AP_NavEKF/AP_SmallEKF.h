@@ -84,7 +84,7 @@ public:
     void RunEKF(float delta_time, const Vector3f &delta_angles, const Vector3f &delta_velocity, const Vector3f &joint_angles);
 
     // get some debug information
-    void getDebug(float &tilt, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias) const;
+    void getDebug(float &tilt, float &yawErr, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias) const;
 
     // get gyro bias data
     void getGyroBias(Vector3f &gyroBias) const;
@@ -132,7 +132,8 @@ private:
     bool newDataMag;                // true when new magnetometer data is waiting to be used
     uint32_t StartTime_ms;          // time the EKF was started (msec)
     bool FiltInit;                  // true when EKF is initialised
-    bool YawAligned;          // true when EKF heading is initialised
+    bool YawAligned;                // true when EKF heading is initialised
+    float yawRotErrMag;             // magnitude of angle correction from last compass measurement
     float cosPhi;// = cosf(gSense.gPhi);
     float cosTheta;// = cosf(gSense.gTheta);
     float sinPhi;// = sinf(gSense.gPhi);

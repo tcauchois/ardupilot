@@ -762,12 +762,12 @@ void SmallEKF::fuseCompass()
     }
 
     // the first 3 states represent the angular error vector where truth = estimate + error. This is is used to correct the estimated quaternion
-    float rotationMag = state.angErr.length();
-    if (rotationMag > 1e-6f) {
+    yawRotErrMag = state.angErr.length();
+    if (yawRotErrMag > 1e-6f) {
         // Convert the error rotation vector to its equivalent quaternion
         Quaternion deltaQuat;
-        float temp = sinf(0.5f*rotationMag) / rotationMag;
-        deltaQuat[0] = cosf(0.5f*rotationMag);
+        float temp = sinf(0.5f*yawRotErrMag) / yawRotErrMag;
+        deltaQuat[0] = cosf(0.5f*yawRotErrMag);
         deltaQuat[1] = state.angErr.x*temp;
         deltaQuat[2] = state.angErr.y*temp;
         deltaQuat[3] = state.angErr.z*temp;
@@ -887,9 +887,10 @@ void SmallEKF::fixCovariance()
 }
 
 // return data for debugging EKF
-void SmallEKF::getDebug(float &tilt, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias) const
+void SmallEKF::getDebug(float &tiltErr, float &yawErr, Vector3f &velocity, Vector3f &euler, Vector3f &gyroBias) const
 {
-    tilt = TiltCorrection;
+    tiltErr = TiltCorrection;
+    yawErr  = yawRotErrMag;
     velocity = state.velocity;
     state.quat.to_euler(euler.x, euler.y, euler.z);
     if (dtIMU < 1.0e-6) {
