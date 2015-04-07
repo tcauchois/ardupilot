@@ -433,9 +433,12 @@ bool NavEKF::healthy(void) const
     if (state.velocity.is_nan()) {
         return false;
     }
-    if (_fallback && velTestRatio > 1 && posTestRatio > 1 && hgtTestRatio > 1) {
-        // all three metrics being above 1 means the filter is
-        // extremely unhealthy.
+    if (!vehicleArmed && (velTestRatio > 1 || posTestRatio > 1 || hgtTestRatio > 1 || magTestRatio.x > 1 || magTestRatio.y > 1)) {
+        // none of these metrics should be above 1 on the ground unless we have bad sensor data
+        return false;
+    }
+    if (_fallback && (velTestRatio + posTestRatio + hgtTestRatio) > 5) {
+        // if the sum is over 5 then the filter is also very unhealthy
         return false;
     }
     // Give the filter 10 seconds to settle before use
