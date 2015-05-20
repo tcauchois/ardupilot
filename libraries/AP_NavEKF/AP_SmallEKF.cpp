@@ -30,7 +30,6 @@ const AP_Param::GroupInfo SmallEKF::var_info[] PROGMEM = {
 // constructor
 SmallEKF::SmallEKF(const AP_AHRS_NavEKF &ahrs) :
     _ahrs(ahrs),
-    _main_ekf(ahrs.get_NavEKF_const()),
     states(),
     state(*reinterpret_cast<struct state_elements *>(&states)),
     TiltCorrection(0),
@@ -572,11 +571,14 @@ void SmallEKF::fuseVelocity(bool yawInit)
     for (uint8_t obsIndex=0;obsIndex<=2;obsIndex++) {
         stateIndex = 3 + obsIndex;
 
-        // Calculate the velocity measurement innovation using the SmallEKF estimate as the observation
+        // Calculate the velocity measurement innovation using the AHRS estimate as the observation
+        // If the AHRS estimate isn't available, use raw GPS
         // if heading isn't aligned, use zero velocity (static assumption)
         if (yawInit) {
             Vector3f measVelNED;
-            _main_ekf.getVelNED(measVelNED);
+            if(!_ahrs.get_relative_position_NED(measVelNED)) {
+                measVelNED = _ahrs.get_gps().velocity();
+            }
             innovation[obsIndex] = state.velocity[obsIndex] - measVelNED[obsIndex];
         } else {
             innovation[obsIndex] = state.velocity[obsIndex];
@@ -853,24 +855,14 @@ float SmallEKF::calcMagHeadingInnov()
     Tms[1][2] = sinPhi;
     Tms[2][2] = cosTheta*cosPhi;
 
-    // get earth magnetic field estimate from main ekf if available to take advantage of main ekf magnetic field learning
-    Vector3f body_magfield, earth_magfield;
-    float declination;
-    if (_main_ekf.healthy()) {
-        _main_ekf.getMagNED(earth_magfield);
-        _main_ekf.getMagXYZ(body_magfield);
-        declination = atan2f(earth_magfield.y,earth_magfield.x);
-    } else {
-        body_magfield.zero();
-        earth_magfield.zero();
-        declination = _ahrs.get_compass()->get_declination();
-    }
+    // get declination
+    float declination = _ahrs.get_compass()->get_declination();
 
     // Define rotation from magnetometer to NED axes
     Matrix3f Tmn = Tsn*Tms;
 
-    // rotate magentic field measured at top plate into NED axes afer applying bias values learnt by main EKF
-    Vector3f magMeasNED = Tmn*(magData - body_magfield);
+    // rotate measured magentic field into NED axes
+    Vector3f magMeasNED = Tmn*magData;
 
     // calculate the innovation where the predicted measurement is the angle wrt magnetic north of the horizontal component of the measured field
     float innovation = atan2f(magMeasNED.y,magMeasNED.x) - declination;

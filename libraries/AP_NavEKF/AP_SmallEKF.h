@@ -99,7 +99,6 @@ public:
 
 private:
     const AP_AHRS_NavEKF &_ahrs;
-    const NavEKF &_main_ekf;
 
     // the states are available in two forms, either as a Vector13 or
     // broken down as individual elements. Both are equivalent (same
