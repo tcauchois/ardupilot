@@ -402,8 +402,8 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
     gpsRetryTimeUseTAS(10000),      // GPS retry time with airspeed measurements (msec)
     gpsRetryTimeNoTAS(7000),        // GPS retry time without airspeed measurements (msec)
     gpsFailTimeWithFlow(5000),      // If we have no GPS for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
-    hgtRetryTimeMode0(10000),       // Height retry time with vertical velocity measurement (msec)
-    hgtRetryTimeMode12(5000),       // Height retry time without vertical velocity measurement (msec)
+    hgtRetryTimeMode0(7000),        // Height retry time with vertical velocity measurement (msec)
+    hgtRetryTimeMode12(2000),       // Height retry time without vertical velocity measurement (msec)
     tasRetryTime(5000),             // True airspeed timeout and retry interval (msec)
     magFailTimeLimit_ms(10000),     // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
     magVarRateScale(0.05f),         // scale factor applied to magnetometer variance due to angular rate
