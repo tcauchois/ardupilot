@@ -396,6 +396,9 @@ private:
     // reset the vertical position state using the last height measurement
     void ResetHeight(void);
 
+    // reset the vertical velocity - this is only to be used for in-flight resets becasue it will be noisy
+    void ResetHeightRate(void);
+
     // return true if we should use the airspeed sensor
     bool useAirspeed(void) const;
 

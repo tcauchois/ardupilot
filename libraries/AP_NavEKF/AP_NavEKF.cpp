@@ -527,6 +527,22 @@ void NavEKF::ResetHeight(void)
     terrainState = state.position.z + rngOnGnd;
 }
 
+// reset the vertical velocity - this is only to be used for in-flight resets becasue it will be noisy
+void NavEKF::ResetHeightRate(void)
+{
+    // If we have GPS and are allowed to use the vertical velocity, then reset the vertical velocity to the GPS measurement
+    // If not, then we use a climb rate obtained from differentiation of the baro alt.
+    if (!gpsNotAvailable && (_fusionModeGPS == 0)) {
+        state.velocity.z  = velNED.z; // reset vertical velocity to GPS if available
+    } else {
+        state.velocity.z = - _baro.get_climb_rate();
+    }
+    // over write stored vertical velocity states to prevent subsequent measurements from being rejected
+    for (uint8_t i=0; i<=49; i++){
+        storedStates[i].velocity.z = state.velocity.z;
+    }
+}
+
 // this function is used to initialise the filter whilst moving, using the AHRS DCM solution
 // it should NOT be used to re-initialise after a timeout as DCM will also be corrupted
 bool NavEKF::InitialiseFilterDynamic(void)
@@ -2126,9 +2142,10 @@ void NavEKF::FuseVelPosNED()
             if (hgtHealth || hgtTimeout || constPosMode) {
                 hgtHealth = true;
                 lastHgtPassTime = imuSampleTime_ms;
-                // if timed out, reset the height, but do not fuse data on this time step
+                // if timed out, reset the height and height rate, but do not fuse data on this time step
                 if (hgtTimeout) {
                     ResetHeight();
+                    ResetHeightRate();
                     fuseHgtData = false;
                 }
             }
