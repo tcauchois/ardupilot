@@ -490,6 +490,8 @@ private:
     AP_Float _maxFlowRate;          // Maximum flow rate magnitude that will be accepted by the filter
     AP_Int8 _fallback;              // EKF-to-DCM fallback strictness. 0 = trust EKF more, 1 = fallback more conservatively.
     AP_Int8 _altSource;             // Primary alt source during optical flow navigation. 0 = use Baro, 1 = use range finder.
+    AP_Int8 _accSource;             // Selects the accerometer sensors that are used for navigation. 0 = default, 1= IMU1, 2=IMU2, 3=IMU3, etc
+    AP_Int8 _gyrSource;             // Selects the rate gyroscope sensors that are used for navigation. 0 = default, 1= IMU1, 2=IMU2, 3=IMU3, etc
 
     // Tuning parameters
     const float gpsNEVelVarAccScale;    // Scale factor applied to NE velocity measurement variance due to manoeuvre acceleration

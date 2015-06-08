@@ -370,6 +370,20 @@ const AP_Param::GroupInfo NavEKF::var_info[] PROGMEM = {
     // @User: Advanced
     AP_GROUPINFO("ALT_SOURCE",    32, NavEKF, _altSource, 1),
 
+    // @Param: ACC_SOURCE
+    // @DisplayName: Primary source of accel data
+    // @Description: This parameter controls which accelerometers are used by the EKF. A value of will 0 cause it to use the default combination of sensors. A value of 1 will cause it to always use IMU1, 2 from IMU2, 3 for IMU3, etc. If the selected IMU is not available, the selection will fall back to the defauilt. Note: the autopilot should always be restarted after changing this parameter as learned bias values will be incorrect.
+    // @Values: 0:Default, 1:Use IMU1, 2:Use IMU2, 3:Use IMU3
+    // @User: Advanced
+    AP_GROUPINFO("ACC_SOURCE",    33, NavEKF, _accSource, 0),
+
+    // @Param: GYR_SOURCE
+    // @DisplayName: Primary source of gyro data
+    // @Description: This parameter controls which rate gyros are used by the EKF. A value of will 0 cause it to use the default combination of sensors. A value of 1 will cause it to always use IMU1, 2 from IMU2, 3 for IMU3, etc. If the selected IMU is not available, the selection will fall back to the defauilt. Note: the autopilot should always be restarted after changing this parameter as learned bias values will be incorrect.
+    // @Values: 0:Default, 1:Use IMU1, 2:Use IMU2, 3:Use IMU3
+    // @User: Advanced
+    AP_GROUPINFO("GYR_SOURCE",    34, NavEKF, _gyrSource, 0),
+
     AP_GROUPEND
 };
 
@@ -4071,21 +4085,28 @@ void NavEKF::readIMUData()
     // the imu sample time is used as a common time reference throughout the filter
     imuSampleTime_ms = hal.scheduler->millis();
 
-    if (ins.get_accel_health(0) && ins.get_accel_health(1)) {
-        // dual accel mode
+    if (_accSource >= 1 && ins.get_accel_health(_accSource - 1)) {
+        // read user specified accelerometer into dVelIMU1 and copy to dVelIMU2
+        readDeltaVelocity((_accSource - 1), dVelIMU1, dtDelVel1);
+        dtDelVel2 = dtDelVel1;
+        dVelIMU2 = dVelIMU1;
+    } else if (ins.get_accel_health(0) && ins.get_accel_health(1)) {
+        // dual accel mode (the default behaviour)
         readDeltaVelocity(0, dVelIMU1, dtDelVel1);
         readDeltaVelocity(1, dVelIMU2, dtDelVel2);
     } else {
         // single accel mode - one of the first two accelerometers are unhealthy
         // read primary accelerometer into dVelIMU1 and copy to dVelIMU2
         readDeltaVelocity(ins.get_primary_accel(), dVelIMU1, dtDelVel1);
-
         dtDelVel2 = dtDelVel1;
         dVelIMU2 = dVelIMU1;
     }
 
-    if (ins.get_gyro_health(0) && ins.get_gyro_health(1)) {
-        // dual gyro mode - average first two gyros
+    if (_gyrSource >= 1 && ins.get_gyro_health(_gyrSource - 1)) {
+        // read user specified gyros
+        readDeltaAngle((_gyrSource - 1), dAngIMU);
+    } else if (ins.get_gyro_health(0) && ins.get_gyro_health(1)) {
+        // dual gyro mode - average first two gyros (the default behaviour)
         Vector3f dAng;
         dAngIMU.zero();
         readDeltaAngle(0, dAng);
