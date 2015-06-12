@@ -436,6 +436,9 @@ private:
     // fuse optical flow measurements into the main filter
     void FuseOptFlow();
 
+    // Fuse X and Y accelerometer measurements to estimate wind and constrain dead-reckoning drift in multirotors
+    void fuseAccelXY();
+
     // Check arm status and perform required checks and mode changes
     void performArmingChecks();
 
@@ -460,6 +463,9 @@ private:
 
     // align the NE earth magnetic field states with the published declination
     void alignMagStateDeclination();
+
+    // average the X and Y acceleraton measurements between now and the previous drag accel fusion
+    void filterDragAccel(void);
 
     // EKF Mavlink Tuneable Parameters
     AP_Float _gpsHorizVelNoise;     // GPS horizontal velocity measurement noise : m/s
@@ -495,6 +501,8 @@ private:
     AP_Float _maxFlowRate;          // Maximum flow rate magnitude that will be accepted by the filter
     AP_Int8 _fallback;              // EKF-to-DCM fallback strictness. 0 = trust EKF more, 1 = fallback more conservatively.
     AP_Int8 _altSource;             // Primary alt source during optical flow navigation. 0 = use Baro, 1 = use range finder.
+    AP_Float _maxSpdX;              // Maximum speed that the multi-rotor will reach at a =-25 degree pitch angle
+    AP_Float _maxSpdY;              // Maximum speed that the multi-rotor will reach at a =-25 degree roll angle
 
     // Tuning parameters
     const float gpsNEVelVarAccScale;    // Scale factor applied to NE velocity measurement variance due to manoeuvre acceleration
@@ -675,6 +683,15 @@ private:
     bool useGpsVertVel;             // true if GPS vertical velocity should be used
     float yawResetAngle;            // Change in yaw angle due to last in-flight yaw reset in radians. A positive value means the yaw angle has increased.
     bool yawResetAngleWaiting;      // true when the yaw reset angle has been updated and has not been retrieved via the getLastYawResetAngle() function
+
+    // Used by multi rotor vehicle drag model
+    float accX_FIR_filt;                // X acceleration filtered using a finite impulse response filter - used for multirotor aerodynamic drag measurement
+    float accY_FIR_filt;                // X acceleration filtered using a finite impulse response filter - used for multirotor aerodynamic drag measurement
+    bool dragAccelWaiting;              // true when drag accel data is waiting to be fused
+    uint32_t dragAccelFuseTime_ms;      // last time a drag acceleration measurement was fused
+    bool useMultiRotorDragModel;        // true if we are using a multi rotor drag model to improve dead reckoning
+    state_elements statesAtDragMeasTime;// filter states at the effective measurement time
+    bool copterInFlight;                // true when the copter has commenced flying
 
     // Used by smoothing of state corrections
     Vector10 gpsIncrStateDelta;    // vector of corrections to attitude, velocity and position to be applied over the period between the current and next GPS measurement
