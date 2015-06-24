@@ -3698,7 +3698,7 @@ void NavEKF::resetGyroBias(void)
 bool NavEKF::resetHeightDatum(void)
 {
     // if we are using a range finder for height, return false
-    if (_altSource == 1) {
+    if (_altSource == ALT_SOURCE_TYPE_RNGFND) {
         return false;
     }
     // record the old height estimate
@@ -4220,7 +4220,7 @@ void NavEKF::readHgtData()
     // check to see if baro measurement has changed so we know if a new measurement has arrived
     if (_baro.get_last_update() != lastHgtMeasTime) {
         // Don't use Baro height if operating in optical flow mode as we use range finder instead
-        if (_fusionModeGPS == 3 && _altSource == 1) {
+        if (_fusionModeGPS == 3 && _altSource == ALT_SOURCE_TYPE_RNGFND) {
             if ((imuSampleTime_ms - rngValidMeaTime_ms) < 2000) {
                 // adjust range finder measurement to allow for effect of vehicle tilt and height of sensor
                 hgtMea = max(rngMea * Tnb_flow.c.z, rngOnGnd);

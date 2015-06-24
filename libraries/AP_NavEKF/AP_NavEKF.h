@@ -788,6 +788,9 @@ private:
         bool bad_sideslip:1;
     } faultStatus;
 
+    // height fusion sensor types
+    enum AltSourceType { ALT_SOURCE_TYPE_BARO = 0, ALT_SOURCE_TYPE_RNGFND = 1 };
+
     // states held by magnetomter fusion across time steps
     // magnetometer X,Y,Z measurements are fused across three time steps
     // to level computational load as this is an expensive operation
