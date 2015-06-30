@@ -483,10 +483,10 @@ void NavEKF::ResetPosition(void)
         // calculate the amount of position movement due to the reset for external reporting
         posResetNE.x += state.position.x;
         posResetNE.y += state.position.y;
-        // the estimated states at the last GPS measurement are set equal to the GPS measurement to prevent transients on the first fusion
-        statesAtPosTime.position.x = gpsPosNE.x;
-        statesAtPosTime.position.y = gpsPosNE.y;
     }
+    // the estimated states at the last GPS measurement are also reset to prevent transients on the first fusion
+    statesAtPosTime.position.x = state.position.x;
+    statesAtPosTime.position.y = state.position.y;
     // stored horizontal position states to prevent subsequent GPS measurements from being rejected
     for (uint8_t i=0; i<=49; i++){
         storedStates[i].position.x = state.position.x;
