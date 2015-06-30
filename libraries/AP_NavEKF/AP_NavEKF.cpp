@@ -464,15 +464,25 @@ bool NavEKF::healthy(void) const
 }
 
 // resets position states to last GPS measurement or to zero if in constant position mode
+// record the amount of positon movement due to the reset for external reporting
 void NavEKF::ResetPosition(void)
 {
     if (constPosMode || (PV_AidingMode != AID_ABSOLUTE)) {
+        // calculate the amount of position movement due to the reset for external reporting
+        posResetNE.x = -state.position.x;
+        posResetNE.y = -state.position.y;
+        // we assume we are static at the origin in this mode of operation
         state.position.x = 0;
         state.position.y = 0;
     } else if (!gpsNotAvailable) {
+        posResetNE.x = -state.position.x;
+        posResetNE.y = -state.position.y;
         // write to state vector and compensate for GPS latency
         state.position.x = gpsPosNE.x + gpsPosGlitchOffsetNE.x + 0.001f*velNED.x*float(_msecPosDelay);
         state.position.y = gpsPosNE.y + gpsPosGlitchOffsetNE.y + 0.001f*velNED.y*float(_msecPosDelay);
+        // calculate the amount of position movement due to the reset for external reporting
+        posResetNE.x += state.position.x;
+        posResetNE.y += state.position.y;
         // the estimated states at the last GPS measurement are set equal to the GPS measurement to prevent transients on the first fusion
         statesAtPosTime.position.x = gpsPosNE.x;
         statesAtPosTime.position.y = gpsPosNE.y;
@@ -4688,6 +4698,8 @@ void NavEKF::InitialiseVariables()
     yawRateFilt = 0.0f;
     yawResetAngle = 0.0f;
     yawResetAngleWaiting = false;
+    posResetNE.zero();
+    posResetWaiting = false;
 }
 
 // return true if we should use the airspeed sensor
@@ -5270,5 +5282,19 @@ bool NavEKF::getLastYawResetAngle(float &yawAng)
     }
 }
 
+// returns a vector representing the amount of North,East position movement in metres due to the last position reset
+// returns true if the position reset vector has been updated and not queried
+// this function should not have more than one client
+bool NavEKF::getLastPosReset(Vector2f &pos)
+{
+    if (posResetWaiting) {
+        pos = posResetNE;
+        posResetWaiting = false;
+        return true;
+    } else {
+        pos = posResetNE;
+        return false;
+    }
+}
 
 #endif // HAL_CPU_CLASS

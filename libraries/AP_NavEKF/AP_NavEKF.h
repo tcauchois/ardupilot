@@ -267,6 +267,11 @@ public:
     // this function should not have more than one client
     bool getLastYawResetAngle(float &yawAng);
 
+    // returns a vector representing the amount of North,East position movement in metres due to the last position reset
+    // returns true if the position reset vector has been updated and not queried
+    // this function should not have more than one client
+    bool getLastPosReset(Vector2f &pos);
+
     static const struct AP_Param::GroupInfo var_info[];
 
 private:
@@ -682,6 +687,8 @@ private:
     bool useGpsVertVel;             // true if GPS vertical velocity should be used
     float yawResetAngle;            // Change in yaw angle due to last in-flight yaw reset in radians. A positive value means the yaw angle has increased.
     bool yawResetAngleWaiting;      // true when the yaw reset angle has been updated and has not been retrieved via the getLastYawResetAngle() function
+    Vector2f posResetNE;            // Change in North,East position in metres due to the last position reset
+    bool posResetWaiting;           // true when the North,East position has been reset and has not been retrieved via the getLastPosReset() function
 
     // Used by smoothing of state corrections
     Vector10 gpsIncrStateDelta;    // vector of corrections to attitude, velocity and position to be applied over the period between the current and next GPS measurement
