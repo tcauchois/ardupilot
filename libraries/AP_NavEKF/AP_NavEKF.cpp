@@ -499,17 +499,26 @@ void NavEKF::ResetPosition(void)
 void NavEKF::ResetVelocity(void)
 {
     if (constPosMode || PV_AidingMode != AID_ABSOLUTE) {
-         state.velocity.zero();
-         state.vel1.zero();
-         state.vel2.zero();
+        // calculate the amount of velocity change due to the reset for external reporting
+        velResetNE.x = -state.velocity.x;
+        velResetNE.y = -state.velocity.y;
+        // we assume we are static at the origin in this mode of operation
+        state.velocity.zero();
+        state.vel1.zero();
+        state.vel2.zero();
     } else if (!gpsNotAvailable) {
+        velResetNE.x = -state.velocity.x;
+        velResetNE.y = -state.velocity.y;
         // reset horizontal velocity states, applying an offset to the GPS velocity to prevent the GPS position being rejected when the GPS position offset is being decayed to zero.
         state.velocity.x  = velNED.x + gpsVelGlitchOffset.x; // north velocity from blended accel data
         state.velocity.y  = velNED.y + gpsVelGlitchOffset.y; // east velocity from blended accel data
-        state.vel1.x      = velNED.x + gpsVelGlitchOffset.x; // north velocity from IMU1 accel data
-        state.vel1.y      = velNED.y + gpsVelGlitchOffset.y; // east velocity from IMU1 accel data
-        state.vel2.x      = velNED.x + gpsVelGlitchOffset.x; // north velocity from IMU2 accel data
-        state.vel2.y      = velNED.y + gpsVelGlitchOffset.y; // east velocity from IMU2 accel data
+        state.vel1.x      = state.velocity.x; // north velocity from IMU1 accel data
+        state.vel1.y      = state.velocity.y; // east velocity from IMU1 accel data
+        state.vel2.x      = state.velocity.x; // north velocity from IMU2 accel data
+        state.vel2.y      = state.velocity.y; // east velocity from IMU2 accel data
+        // calculate the amount of velocity change due to the reset for external reporting
+        velResetNE.x += state.velocity.x;
+        velResetNE.y += state.velocity.y;
     }
     // the estimated states at the last GPS measurement are also reset to prevent transients on the first fusion
     statesAtVelTime.velocity.x = state.velocity.x;
@@ -4703,6 +4712,8 @@ void NavEKF::InitialiseVariables()
     yawResetAngleWaiting = false;
     posResetNE.zero();
     posResetWaiting = false;
+    velResetNE.zero();
+    velResetWaiting = false;
 }
 
 // return true if we should use the airspeed sensor
@@ -5296,6 +5307,21 @@ bool NavEKF::getLastPosReset(Vector2f &pos)
         return true;
     } else {
         pos = posResetNE;
+        return false;
+    }
+}
+
+// returns a vector representing the amount of North,East velocity change in metres due to the last velocity reset
+// returns true if the velocity reset vector has been updated and not queried
+// this function should not have more than one client
+bool NavEKF::getLastVelReset(Vector2f &vel)
+{
+    if (velResetWaiting) {
+        vel = velResetNE;
+        velResetWaiting = false;
+        return true;
+    } else {
+        vel = velResetNE;
         return false;
     }
 }

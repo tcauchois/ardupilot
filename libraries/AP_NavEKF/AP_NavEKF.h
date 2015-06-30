@@ -272,6 +272,11 @@ public:
     // this function should not have more than one client
     bool getLastPosReset(Vector2f &pos);
 
+    // returns a vector representing the amount of North,East velocity change in metres due to the last velocity reset
+    // returns true if the velocity reset vector has been updated and not queried
+    // this function should not have more than one client
+    bool getLastVelReset(Vector2f &vel);
+
     static const struct AP_Param::GroupInfo var_info[];
 
 private:
@@ -689,6 +694,8 @@ private:
     bool yawResetAngleWaiting;      // true when the yaw reset angle has been updated and has not been retrieved via the getLastYawResetAngle() function
     Vector2f posResetNE;            // Change in North,East position in metres due to the last position reset
     bool posResetWaiting;           // true when the North,East position has been reset and has not been retrieved via the getLastPosReset() function
+    Vector2f velResetNE;            // Change in North,East velocity in metres/sec due to the last position reset
+    bool velResetWaiting;           // true when the North,East velocity has been reset and has not been retrieved via the getLastVelReset() function
 
     // Used by smoothing of state corrections
     Vector10 gpsIncrStateDelta;    // vector of corrections to attitude, velocity and position to be applied over the period between the current and next GPS measurement
