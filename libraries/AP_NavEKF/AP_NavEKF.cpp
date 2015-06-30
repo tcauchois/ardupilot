@@ -478,8 +478,8 @@ void NavEKF::ResetPosition(void)
         posResetNE.x = -state.position.x;
         posResetNE.y = -state.position.y;
         // write to state vector and compensate for GPS latency
-        state.position.x = gpsPosNE.x + gpsPosGlitchOffsetNE.x + 0.001f*velNED.x*float(_msecPosDelay);
-        state.position.y = gpsPosNE.y + gpsPosGlitchOffsetNE.y + 0.001f*velNED.y*float(_msecPosDelay);
+        state.position.x = gpsPosNE.x + 0.001f*velNED.x*float(_msecPosDelay);
+        state.position.y = gpsPosNE.y + 0.001f*velNED.y*float(_msecPosDelay);
         // calculate the amount of position movement due to the reset for external reporting
         posResetNE.x += state.position.x;
         posResetNE.y += state.position.y;
@@ -509,9 +509,9 @@ void NavEKF::ResetVelocity(void)
     } else if (!gpsNotAvailable) {
         velResetNE.x = -state.velocity.x;
         velResetNE.y = -state.velocity.y;
-        // reset horizontal velocity states, applying an offset to the GPS velocity to prevent the GPS position being rejected when the GPS position offset is being decayed to zero.
-        state.velocity.x  = velNED.x + gpsVelGlitchOffset.x; // north velocity from blended accel data
-        state.velocity.y  = velNED.y + gpsVelGlitchOffset.y; // east velocity from blended accel data
+        // reset horizontal velocity states
+        state.velocity.x  = velNED.x; // north velocity from blended accel data
+        state.velocity.y  = velNED.y; // east velocity from blended accel data
         state.vel1.x      = state.velocity.x; // north velocity from IMU1 accel data
         state.vel1.y      = state.velocity.y; // east velocity from IMU1 accel data
         state.vel2.x      = state.velocity.x; // north velocity from IMU2 accel data
@@ -856,11 +856,6 @@ void NavEKF::SelectVelPosFusion()
             fusePosData = true;
             // If a long time since last GPS update, then reset position and velocity and reset stored state history
             if (imuSampleTime_ms - secondLastFixTime_ms > gpsRetryTimeout) {
-                // Apply an offset to the GPS position so that the position can be corrected gradually
-                gpsPosGlitchOffsetNE.x = statesAtPosTime.position.x - gpsPosNE.x;
-                gpsPosGlitchOffsetNE.y = statesAtPosTime.position.y - gpsPosNE.y;
-                // limit the radius of the offset to 100m and decay the offset to zero radially
-                decayGpsOffset();
                 ResetPosition();
                 ResetVelocity();
                 // record the fail time
@@ -1958,11 +1953,11 @@ void NavEKF::FuseVelPosNED()
         // form the observation vector and zero velocity and horizontal position observations if in constant position mode
         // If in constant velocity mode, hold the last known horizontal velocity vector
         if (!constPosMode && !constVelMode) {
-            observation[0] = velNED.x + gpsVelGlitchOffset.x;
-            observation[1] = velNED.y + gpsVelGlitchOffset.y;
+            observation[0] = velNED.x;
+            observation[1] = velNED.y;
             observation[2] = velNED.z;
-            observation[3] = gpsPosNE.x + gpsPosGlitchOffsetNE.x;
-            observation[4] = gpsPosNE.y + gpsPosGlitchOffsetNE.y;
+            observation[3] = gpsPosNE.x;
+            observation[4] = gpsPosNE.y;
         } else if (constPosMode){
             for (uint8_t i=0; i<=4; i++) observation[i] = 0.0f;
         } else if (constVelMode) {
@@ -2044,11 +2039,7 @@ void NavEKF::FuseVelPosNED()
                     lastPosPassTime = imuSampleTime_ms;
                     // if timed out or outside the specified glitch radius, increment the offset applied to GPS data to compensate for large GPS position jumps
                     if (posTimeout || (maxPosInnov2 > sq(float(_gpsGlitchRadiusMax)))) {
-                        gpsPosGlitchOffsetNE.x += innovVelPos[3];
-                        gpsPosGlitchOffsetNE.y += innovVelPos[4];
-                        // limit the radius of the offset and decay the offset to zero radially
-                        decayGpsOffset();
-                        // reset the position to the current GPS position which will include the glitch correction offset
+                        // reset the position to the current GPS position
                         ResetPosition();
                         // reset the velocity to the GPS velocity
                         ResetVelocity();
@@ -2805,7 +2796,7 @@ void NavEKF::EstimateTerrainOffset()
 
         if (fuseOptFlowData) {
 
-            Vector3f vel; // velocity of sensor relative to ground in NED axes
+            Vector3f vel = statesAtFlowTime.velocity; // velocity of sensor relative to ground in NED axes
             Vector3f relVelSensor; // velocity of sensor relative to ground in sensor axes
             float losPred; // predicted optical flow angular rate measurement
             float q0 = statesAtFlowTime.quat[0]; // quaternion at optical flow measurement time
@@ -2814,11 +2805,6 @@ void NavEKF::EstimateTerrainOffset()
             float q3 = statesAtFlowTime.quat[3]; // quaternion at optical flow measurement time
             float K_OPT;
             float H_OPT;
-
-            // Correct velocities for GPS glitch recovery offset
-            vel.x          = statesAtFlowTime.velocity[0] - gpsVelGlitchOffset.x;
-            vel.y          = statesAtFlowTime.velocity[1] - gpsVelGlitchOffset.y;
-            vel.z          = statesAtFlowTime.velocity[2];
 
             // predict range to centre of image
             float flowRngPred = max((terrainState - statesAtFlowTime.position[2]),rngOnGnd) / Tnb_flow.c.z;
@@ -2905,7 +2891,6 @@ void NavEKF::FuseOptFlow()
 {
     Vector22 H_LOS;
     Vector8 tempVar;
-    Vector3f velNED_local;
     Vector3f relVelSensor;
 
     uint8_t &obsIndex = flow_state.obsIndex;
@@ -2930,10 +2915,6 @@ void NavEKF::FuseOptFlow()
     ve       = statesAtFlowTime.velocity[1];
     vd       = statesAtFlowTime.velocity[2];
     pd       = statesAtFlowTime.position[2];
-    // Correct velocities for GPS glitch recovery offset
-    velNED_local.x = vn - gpsVelGlitchOffset.x;
-    velNED_local.y = ve - gpsVelGlitchOffset.y;
-    velNED_local.z = vd;
 
     // constrain height above ground to be above range measured on ground
     float heightAboveGndEst = max((terrainState - pd), rngOnGnd);
@@ -2943,7 +2924,7 @@ void NavEKF::FuseOptFlow()
         float range = constrain_float((heightAboveGndEst/Tnb_flow.c.z),rngOnGnd,1000.0f);
 
         // calculate relative velocity in sensor frame
-        relVelSensor = Tnb_flow*velNED_local;
+        relVelSensor = Tnb_flow*statesAtFlowTime.velocity;
 
         // divide velocity by range  to get predicted angular LOS rates relative to X and Y axes
         losPred[0] =  relVelSensor.y/range;
@@ -3209,8 +3190,8 @@ void NavEKF::FuseAirspeed()
     vwn = statesAtVtasMeasTime.wind_vel.x;
     vwe = statesAtVtasMeasTime.wind_vel.y;
 
-    // calculate the predicted airspeed, compensating for bias in GPS velocity when we are pulling a glitch offset back in
-    VtasPred = pythagorous3((ve - gpsVelGlitchOffset.y - vwe) , (vn - gpsVelGlitchOffset.x - vwn) , vd);
+    // calculate the predicted airspeed
+    VtasPred = pythagorous3((ve - vwe) , (vn - vwn) , vd);
     // perform fusion of True Airspeed measurement
     if (VtasPred > 1.0f)
     {
@@ -3380,9 +3361,9 @@ void NavEKF::FuseSideslip()
     vwn = state.wind_vel.x;
     vwe = state.wind_vel.y;
 
-    // calculate predicted wind relative velocity in NED, compensating for offset in velcity when we are pulling a GPS glitch offset back in
-    vel_rel_wind.x = vn - vwn - gpsVelGlitchOffset.x;
-    vel_rel_wind.y = ve - vwe - gpsVelGlitchOffset.y;
+    // calculate predicted wind relative velocity in NED
+    vel_rel_wind.x = vn - vwn;
+    vel_rel_wind.y = ve - vwe;
     vel_rel_wind.z = vd;
 
     // rotate into body axes
@@ -4234,9 +4215,6 @@ void NavEKF::readGpsData()
                 ResetVelocity();
             }
         }
-
-        // calculate a position offset which is applied to NE position and velocity wherever it is used throughout code to allow GPS position jumps to be accommodated gradually
-        decayGpsOffset();
     }
 
     // If no previous GPS lock or told not to use it, or EKF origin not set, we declare the  GPS unavailable for use
@@ -4583,7 +4561,7 @@ void  NavEKF::getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &m
 
 // return the innovation consistency test ratios for the velocity, position, magnetometer and true airspeed measurements
 // this indicates the amount of margin available when tuning the various error traps
-// also return the current offsets applied to the GPS position measurements
+// also return the last position reset offset
 void  NavEKF::getVariances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const
 {
     velVar   = sqrtf(velTestRatio);
@@ -4593,7 +4571,7 @@ void  NavEKF::getVariances(float &velVar, float &posVar, float &hgtVar, Vector3f
     magVar.y = sqrtf(magTestRatio.y);
     magVar.z = sqrtf(magTestRatio.z);
     tasVar   = sqrtf(tasTestRatio);
-    offset   = gpsPosGlitchOffsetNE;
+    offset   = posResetNE;
 }
 
 // Use a function call rather than a constructor to initialise variables because it enables the filter to be re-started in flight if necessary.
@@ -4650,7 +4628,6 @@ void NavEKF::InitialiseVariables()
     summedDelAng.zero();
     summedDelVel.zero();
     velNED.zero();
-    gpsPosGlitchOffsetNE.zero();
     lastKnownPositionNE.zero();
     gpsPosNE.zero();
     prevTnb.zero();
@@ -4682,7 +4659,6 @@ void NavEKF::InitialiseVariables()
     PV_AidingMode = AID_NONE;
     posTimeout = true;
     velTimeout = true;
-    gpsVelGlitchOffset.zero();
     vehicleArmed = false;
     prevVehicleArmed = false;
     constPosMode = true;
@@ -4749,33 +4725,6 @@ bool NavEKF::getVehicleArmStatus(void) const
 bool NavEKF::use_compass(void) const
 {
     return _ahrs->get_compass() && _ahrs->get_compass()->use_for_yaw();
-}
-
-// decay GPS horizontal position offset to close to zero at a rate of 1 m/s for copters and 5 m/s for planes
-// limit radius to a maximum of 50m
-void NavEKF::decayGpsOffset()
-{
-    float offsetDecaySpd;
-    if (assume_zero_sideslip()) {
-        offsetDecaySpd = 5.0f;
-    } else {
-        offsetDecaySpd = 1.0f;
-    }
-    float lapsedTime = 0.001f*float(imuSampleTime_ms - lastDecayTime_ms);
-    lastDecayTime_ms = imuSampleTime_ms;
-    float offsetRadius = pythagorous2(gpsPosGlitchOffsetNE.x, gpsPosGlitchOffsetNE.y);
-    // decay radius if larger than offset decay speed multiplied by lapsed time (plus a margin to prevent divide by zero)
-    if (offsetRadius > (offsetDecaySpd * lapsedTime + 0.1f)) {
-        // Calculate the GPS velocity offset required. This is necessary to prevent the position measurement being rejected for inconsistency when the radius is being pulled back in.
-        gpsVelGlitchOffset = -gpsPosGlitchOffsetNE*offsetDecaySpd/offsetRadius;
-        // calculate scale factor to be applied to both offset components
-        float scaleFactor = constrain_float((offsetRadius - offsetDecaySpd * lapsedTime), 0.0f, 50.0f) / offsetRadius;
-        gpsPosGlitchOffsetNE.x *= scaleFactor;
-        gpsPosGlitchOffsetNE.y *= scaleFactor;
-    } else {
-        gpsVelGlitchOffset.zero();
-        gpsPosGlitchOffsetNE.zero();
-    }
 }
 
 /*
