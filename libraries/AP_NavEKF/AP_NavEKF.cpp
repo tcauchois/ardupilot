@@ -510,11 +510,14 @@ void NavEKF::ResetVelocity(void)
         state.vel1.y      = velNED.y + gpsVelGlitchOffset.y; // east velocity from IMU1 accel data
         state.vel2.x      = velNED.x + gpsVelGlitchOffset.x; // north velocity from IMU2 accel data
         state.vel2.y      = velNED.y + gpsVelGlitchOffset.y; // east velocity from IMU2 accel data
-        // over write stored horizontal velocity states to prevent subsequent GPS measurements from being rejected
-        for (uint8_t i=0; i<=49; i++){
-            storedStates[i].velocity.x = velNED.x + gpsVelGlitchOffset.x;
-            storedStates[i].velocity.y = velNED.y + gpsVelGlitchOffset.y;
-        }
+    }
+    // the estimated states at the last GPS measurement are also reset to prevent transients on the first fusion
+    statesAtVelTime.velocity.x = state.velocity.x;
+    statesAtVelTime.velocity.y = state.velocity.y;
+    // over write stored horizontal velocity states to prevent subsequent GPS measurements from being rejected
+    for (uint8_t i=0; i<=49; i++){
+        storedStates[i].velocity.x = state.velocity.x;
+        storedStates[i].velocity.y = state.velocity.y;
     }
 }
 
