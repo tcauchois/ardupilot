@@ -1249,7 +1249,6 @@ void NavEKF::CovariancePrediction()
     // if we are yawing rapidly, inhibit yaw gyro bias learning to prevent gyro scale factor errors from corrupting the bias estimate
     if (highYawRate) {
         processNoise[12] = 0.0f;
-        P[12][12] = 0.0f;
     }
     // scale accel bias noise when disarmed to allow for faster bias estimation
     // inhibit bias estimation during takeoff with ground effect to prevent bad bias learning
