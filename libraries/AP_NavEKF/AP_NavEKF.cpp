@@ -404,7 +404,6 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
     tasRetryTime(5000),             // True airspeed timeout and retry interval (msec)
     magFailTimeLimit_ms(10000),     // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
     magVarRateScale(0.05f),         // scale factor applied to magnetometer variance due to angular rate
-    gyroBiasNoiseScaler(2.0f),      // scale factor applied to imu gyro bias learning before the vehicle is armed
     accelBiasNoiseScaler(1.0f),     // scale factor applied to imu accel bias learning before the vehicle is armed
     msecGpsAvg(200),                // average number of msec between GPS measurements
     msecHgtAvg(100),                // average number of msec between height measurements
@@ -1244,12 +1243,8 @@ void NavEKF::CovariancePrediction()
     }
     for (uint8_t i= 0; i<=9;  i++) processNoise[i] = 1.0e-9f;
     for (uint8_t i=10; i<=12; i++) processNoise[i] = dAngBiasSigma;
-    // scale gyro bias noise when disarmed to allow for faster bias estimation
     for (uint8_t i=10; i<=12; i++) {
         processNoise[i] = dAngBiasSigma;
-        if (!vehicleArmed) {
-            processNoise[i] *= gyroBiasNoiseScaler;
-        }
     }
     // if we are yawing rapidly, inhibit yaw gyro bias learning to prevent gyro scale factor errors from corrupting the bias estimate
     if (highYawRate) {
