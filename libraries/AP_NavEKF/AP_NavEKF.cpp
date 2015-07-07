@@ -1216,13 +1216,15 @@ void NavEKF::CovariancePrediction()
     float day_b;        // Y axis delta angle measurement bias (rad)
     float daz_b;        // Z axis delta angle measurement bias (rad)
     float dvz_b;        // Z axis delta velocity measurement bias (rad)
-    float dt;           // time since last covariance update (sec)
+
+    // time since last covariance update (sec)
+    float dt = dtIMUactual;
 
     // calculate covariance prediction process noise
     // use filtered height rate to increase wind process noise when climbing or descending
     // this allows for wind gradient effects.
     // filter height rate using a 10 second time constant filter
-    float alpha = 0.1f * dt;
+    float alpha = constrain_float(0.1f * dt, 0.0f, 1.0f);
     hgtRate = hgtRate * (1.0f - alpha) - state.velocity.z * alpha;
 
     // use filtered height rate to increase wind process noise when climbing or descending
@@ -1265,7 +1267,6 @@ void NavEKF::CovariancePrediction()
     for (uint8_t i= 0; i<=21; i++) processNoise[i] = sq(processNoise[i]);
 
     // set variables used to calculate covariance growth
-    dt = dtIMUactual;
     dvx = correctedDelVel12.x;
     dvy = correctedDelVel12.y;
     dvz = correctedDelVel12.z;
