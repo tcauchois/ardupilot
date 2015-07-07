@@ -742,18 +742,8 @@ void NavEKF::UpdateFilter()
     // store the predicted states for subsequent use by measurement fusion
     StoreStates();
 
-    // sum delta angles and time used by covariance prediction
-    summedDelAng = summedDelAng + correctedDelAng;
-    summedDelVel = summedDelVel + correctedDelVel12;
-    dt += dtIMUactual;
-
-    // perform a covariance prediction if the total delta angle has exceeded the limit
-    // or the time limit will be exceeded at the next IMU update
-    if (((dt >= (covTimeStepMax - dtIMUactual)) || (summedDelAng.length() > covDelAngMax))) {
-        CovariancePrediction();
-    } else {
-        covPredStep = false;
-    }
+    // perform a covariance prediction
+    CovariancePrediction();
 
     // Read range finder data which is used by both position and optical flow fusion
     readRangeFinder();
@@ -850,7 +840,7 @@ void NavEKF::SelectVelPosFusion()
             fuseVelData = false;
             fusePosData = false;
         }
-    } else if (constPosMode && covPredStep) {
+    } else if (constPosMode) {
         // in constant position mode use synthetic position measurements set to zero
         // only fuse synthetic measurements when rate of change of velocity is less than 0.5g to reduce attitude errors due to launch acceleration
         // do not use velocity fusion to reduce the effect of movement on attitude
@@ -860,7 +850,7 @@ void NavEKF::SelectVelPosFusion()
             fusePosData = false;
         }
         fuseVelData = false;
-    } else if (constVelMode && covPredStep) {
+    } else if (constVelMode) {
         // In constant velocity mode we fuse the last valid velocity vector
         // Reset the stored velocity vector when we enter the mode
         if (constVelMode && !lastConstVelMode) {
@@ -906,8 +896,6 @@ void NavEKF::SelectVelPosFusion()
 
     // perform fusion
     if (fuseVelData || fusePosData || fuseHgtData) {
-        // ensure that the covariance prediction is up to date before fusing data
-        if (!covPredStep) CovariancePrediction();
         FuseVelPosNED();
     }
 
@@ -964,8 +952,6 @@ void NavEKF::SelectMagFusion()
         // reset state updates and counter used to spread fusion updates across several frames to reduce 10Hz pulsing
         memset(&magIncrStateDelta[0], 0, sizeof(magIncrStateDelta));
         magUpdateCount = 0;
-        // ensure that the covariance prediction is up to date before fusing data
-        if (!covPredStep) CovariancePrediction();
         // fuse the three magnetometer componenents sequentially
         for (mag_state.obsIndex = 0; mag_state.obsIndex <= 2; mag_state.obsIndex++) FuseMagnetometer();
     }
@@ -1048,8 +1034,6 @@ void NavEKF::SelectFlowFusion()
         flowUpdateCount = 0;
         // Set the flow noise used by the fusion processes
         R_LOS = sq(max(_flowNoise, 0.05f));
-        // ensure that the covariance prediction is up to date before fusing data
-        if (!covPredStep) CovariancePrediction();
         // Fuse the optical flow X and Y axis data into the main filter sequentially
         for (flow_state.obsIndex = 0; flow_state.obsIndex <= 1; flow_state.obsIndex++) FuseOptFlow();
         // reset flag to indicate that no new flow data is available for fusion
@@ -1084,8 +1068,6 @@ void NavEKF::SelectTasFusion()
     tasDataWaiting = (statesInitialised && !inhibitWindStates && newDataTas);
     if (tasDataWaiting)
     {
-        // ensure that the covariance prediction is up to date before fusing data
-        if (!covPredStep) CovariancePrediction();
         FuseAirspeed();
         TASmsecPrev = imuSampleTime_ms;
         tasDataWaiting = false;
@@ -1106,8 +1088,6 @@ void NavEKF::SelectBetaFusion()
     bool f_feasible = (assume_zero_sideslip() && !inhibitWindStates);
     // use synthetic sideslip fusion if feasible, required and enough time has lapsed since the last fusion
     if (f_feasible && f_required && f_timeTrigger) {
-        // ensure that the covariance prediction is up to date before fusing data
-        if (!covPredStep) CovariancePrediction();
         FuseSideslip();
         BETAmsecPrev = imuSampleTime_ms;
     }
@@ -1237,6 +1217,7 @@ void NavEKF::CovariancePrediction()
     float day_b;        // Y axis delta angle measurement bias (rad)
     float daz_b;        // Z axis delta angle measurement bias (rad)
     float dvz_b;        // Z axis delta velocity measurement bias (rad)
+    float dt;           // time since last covariance update (sec)
 
     // calculate covariance prediction process noise
     // use filtered height rate to increase wind process noise when climbing or descending
@@ -1290,12 +1271,13 @@ void NavEKF::CovariancePrediction()
     for (uint8_t i= 0; i<=21; i++) processNoise[i] = sq(processNoise[i]);
 
     // set variables used to calculate covariance growth
-    dvx = summedDelVel.x;
-    dvy = summedDelVel.y;
-    dvz = summedDelVel.z;
-    dax = summedDelAng.x;
-    day = summedDelAng.y;
-    daz = summedDelAng.z;
+    dt = dtIMUactual;
+    dvx = correctedDelVel12.x;
+    dvy = correctedDelVel12.y;
+    dvz = correctedDelVel12.z;
+    dax = correctedDelAng.x;
+    day = correctedDelAng.y;
+    daz = correctedDelAng.z;
     q0 = state.quat[0];
     q1 = state.quat[1];
     q2 = state.quat[2];
@@ -1873,12 +1855,6 @@ void NavEKF::CovariancePrediction()
 
     // constrain diagonals to prevent ill-conditioning
     ConstrainVariances();
-
-    // set the flag to indicate that covariance prediction has been performed and reset the increments used by the covariance prediction
-    covPredStep = true;
-    summedDelAng.zero();
-    summedDelVel.zero();
-    dt = 0.0f;
 
     perf_end(_perf_CovariancePrediction);
 }
@@ -4617,7 +4593,6 @@ void NavEKF::InitialiseVariables()
     storeIndex = 0;
     dtIMUavg = 0.0025f;
     dtIMUactual = 0.0025f;
-    dt = 0;
     hgtMea = 0;
     storeIndex = 0;
     lastGyroBias.zero();
@@ -4625,8 +4600,6 @@ void NavEKF::InitialiseVariables()
     lastAccel1.zero();
     lastAccel2.zero();
     velDotNEDfilt.zero();
-    summedDelAng.zero();
-    summedDelVel.zero();
     velNED.zero();
     gpsPosGlitchOffsetNE.zero();
     lastKnownPositionNE.zero();

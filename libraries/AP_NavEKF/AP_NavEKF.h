@@ -568,8 +568,6 @@ private:
     Vector3f correctedDelVel12;     // delta velocities along the XYZ body axes for weighted average of IMU1 and IMU2 corrected for errors (m/s)
     Vector3f correctedDelVel1;      // delta velocities along the XYZ body axes for IMU1 corrected for errors (m/s)
     Vector3f correctedDelVel2;      // delta velocities along the XYZ body axes for IMU2 corrected for errors (m/s)
-    Vector3f summedDelAng;          // corrected & summed delta angles about the xyz body axes (rad)
-    Vector3f summedDelVel;          // corrected & summed delta velocities along the XYZ body axes (m/s)
     Vector3f lastGyroBias;          // previous gyro bias vector used by filter divergence check
     Matrix3f prevTnb;               // previous nav to body transformation used for INS earth rotation compensation
     ftype accNavMag;                // magnitude of navigation accel - used to adjust GPS obs variance (m/s^2)
@@ -580,7 +578,6 @@ private:
     Vector3f dAngIMU;               // delta angle vector in XYZ body axes measured by the IMU (rad)
     ftype dtIMUavg;                 // expected time between IMU measurements (sec)
     ftype dtIMUactual;              // time lapsed since the last IMU measurement (sec)
-    ftype dt;                       // time lapsed since the last covariance prediction (sec)
     ftype hgtRate;                  // state for rate of change of height filter
     bool onGround;                  // boolean true when the flight vehicle is on the ground (not flying)
     bool prevOnGround;              // value of onGround from previous update
@@ -606,7 +603,6 @@ private:
     bool fuseVtasData;              // boolean true when airspeed data is to be fused
     float VtasMeas;                 // true airspeed measurement (m/s)
     state_elements statesAtVtasMeasTime;  // filter states at the effective measurement time
-    bool covPredStep;               // boolean set to true when a covariance prediction step has been performed
     bool magFusePerformed;          // boolean set to true when magnetometer fusion has been perfomred in that time step
     bool magFuseRequired;           // boolean set to true when magnetometer fusion will be perfomred in the next time step
     bool posVelFuseStep;            // boolean set to true when position and velocity fusion is being performed
