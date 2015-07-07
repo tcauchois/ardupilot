@@ -304,9 +304,6 @@ private:
     // force symmetry on the state covariance matrix
     void ForceSymmetry();
 
-    // copy covariances across from covariance prediction calculation and fix numerical errors
-    void CopyAndFixCovariances();
-
     // constrain variances (diagonal terms) in the state covariance matrix
     void ConstrainVariances();
 
