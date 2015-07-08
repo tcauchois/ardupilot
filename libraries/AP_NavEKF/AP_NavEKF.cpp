@@ -823,15 +823,21 @@ void NavEKF::SelectVelPosFusion()
         }
 
         // command fusion of GPS data and reset states as required
-        if (newDataGps && (PV_AidingMode == AID_ABSOLUTE)) {
+        if (newDataGps) {
             // reset data arrived flag
             newDataGps = false;
             // reset state updates and counter used to spread fusion updates across several frames to reduce 10Hz pulsing
             memset(&gpsIncrStateDelta[0], 0, sizeof(gpsIncrStateDelta));
             gpsUpdateCount = 0;
-            // use both if GPS use is enabled
-            fuseVelData = true;
+            // alway use position data if using GPS
             fusePosData = true;
+            // only use velocity data if the EKF_GPS_TYPE parameter allows it
+            if (_fusionModeGPS <= 1) {
+                fuseVelData = true;
+            } else {
+                fuseVelData = false;
+            }
+
             // If a long time since last GPS update, then reset position and velocity and reset stored state history
             if (imuSampleTime_ms - secondLastFixTime_ms > gpsRetryTimeout) {
                 // Apply an offset to the GPS position so that the position can be corrected gradually
@@ -846,9 +852,12 @@ void NavEKF::SelectVelPosFusion()
                 // Reset the normalised innovation to avoid false failing the bad position fusion test
                 posTestRatio = 0.0f;
             }
+
         } else {
+
             fuseVelData = false;
             fusePosData = false;
+
         }
     } else if (constPosMode && covPredStep) {
         // in constant position mode use synthetic position measurements set to zero
@@ -2047,7 +2056,7 @@ void NavEKF::FuseVelPosNED()
         if (fuseVelData) {
             // test velocity measurements
             uint8_t imax = 2;
-            if (_fusionModeGPS == 1 || constVelMode) {
+            if (!useGpsVertVel || constVelMode) {
                 imax = 1;
             }
             float K1 = 0; // innovation to error ratio for IMU1
@@ -2135,14 +2144,12 @@ void NavEKF::FuseVelPosNED()
         }
 
         // set range for sequential fusion of velocity and position measurements depending on which data is available and its health
-        if (fuseVelData && useGpsVertVel && velHealth && !constPosMode && PV_AidingMode == AID_ABSOLUTE) {
+        if (fuseVelData && velHealth && !constPosMode && PV_AidingMode == AID_ABSOLUTE) {
             fuseData[0] = true;
             fuseData[1] = true;
-            fuseData[2] = true;
-        }
-        if (fuseVelData && _fusionModeGPS == 1 && velHealth && !constPosMode && PV_AidingMode == AID_ABSOLUTE) {
-            fuseData[0] = true;
-            fuseData[1] = true;
+            if (useGpsVertVel) {
+                fuseData[2] = true;
+            }
         }
         if ((fusePosData && posHealth && PV_AidingMode == AID_ABSOLUTE) || constPosMode) {
             fuseData[3] = true;
