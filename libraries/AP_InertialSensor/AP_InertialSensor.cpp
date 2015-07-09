@@ -351,11 +351,6 @@ AP_InertialSensor::init( Start_style style,
         }
     }
 
-    if (WARM_START != style) {
-        // do cold-start calibration for gyro only
-        _init_gyro();
-    }
-
     switch (sample_rate) {
     case RATE_50HZ:
         _sample_period_usec = 20000;
