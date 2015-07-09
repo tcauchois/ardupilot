@@ -1166,8 +1166,9 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector3f posInnov;
     Vector3f magInnov;
     float tasInnov;
+    float yawInnov;
     float tiltErr;
-    ahrs.get_NavEKF().getInnovations(velInnov, posInnov, magInnov, tasInnov);
+    ahrs.get_NavEKF().getInnovations(velInnov, posInnov, magInnov, tasInnov, yawInnov);
     ahrs.get_NavEKF().getTiltError(tiltErr);
     struct log_EKF3 pkt3 = {
         LOG_PACKET_HEADER_INIT(LOG_EKF3_MSG),
@@ -1182,7 +1183,8 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
         innovMY : (int16_t)(magInnov.y),
         innovMZ : (int16_t)(magInnov.z),
         innovVT : (int16_t)(100*tasInnov),
-        tiltErr : (float)(tiltErr)
+        tiltErr : (float)(tiltErr),
+        innovYaw : (int16_t)(100*yawInnov)
     };
     WriteBlock(&pkt3, sizeof(pkt3));
 
