@@ -1184,7 +1184,7 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
         innovMZ : (int16_t)(magInnov.z),
         innovVT : (int16_t)(100*tasInnov),
         tiltErr : (float)(tiltErr),
-        innovYaw : (int16_t)(100*yawInnov)
+        innovYaw : (int16_t)(100*degrees(yawInnov))
     };
     WriteBlock(&pkt3, sizeof(pkt3));
 
