@@ -546,7 +546,6 @@ private:
     AP_Int8  _magInnovGate;         // Number of standard deviations applied to magnetometer innovation consistency check
     AP_Int8  _tasInnovGate;         // Number of standard deviations applied to true airspeed innovation consistency check
     AP_Int8  _magCal;               // Sets activation condition for in-flight magnetometer calibration
-    AP_Int16 _gpsGlitchAccelMax;    // Maximum allowed discrepancy between inertial and GPS Horizontal acceleration before GPS data is ignored : cm/s^2
     AP_Int8 _gpsGlitchRadiusMax;    // Maximum allowed discrepancy between inertial and GPS Horizontal position before GPS glitch is declared : m
     AP_Int8 _gndGradientSigma;      // RMS terrain gradient percentage assumed by the terrain height estimation.
     AP_Float _flowNoise;            // optical flow rate measurement noise

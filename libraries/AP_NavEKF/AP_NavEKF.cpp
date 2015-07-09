@@ -29,17 +29,16 @@
 #define POSNE_NOISE_DEFAULT     0.5f
 #define ALT_NOISE_DEFAULT       1.0f
 #define MAG_NOISE_DEFAULT       0.05f
-#define GYRO_PNOISE_DEFAULT     0.015f
+#define GYRO_PNOISE_DEFAULT     0.01f
 #define ACC_PNOISE_DEFAULT      0.25f
 #define GBIAS_PNOISE_DEFAULT    1E-05f
 #define ABIAS_PNOISE_DEFAULT    0.00005f
 #define MAG_PNOISE_DEFAULT     0.0003f
 #define VEL_GATE_DEFAULT        5
-#define POS_GATE_DEFAULT        10
+#define POS_GATE_DEFAULT        5
 #define HGT_GATE_DEFAULT        10
 #define MAG_GATE_DEFAULT        3
 #define MAG_CAL_DEFAULT         3
-#define GLITCH_ACCEL_DEFAULT    100
 #define GLITCH_RADIUS_DEFAULT   25
 #define FLOW_MEAS_DELAY         10
 #define FLOW_NOISE_DEFAULT      0.25f
@@ -52,18 +51,17 @@
 #define POSNE_NOISE_DEFAULT     0.5f
 #define ALT_NOISE_DEFAULT       1.0f
 #define MAG_NOISE_DEFAULT       0.05f
-#define GYRO_PNOISE_DEFAULT     0.015f
+#define GYRO_PNOISE_DEFAULT     0.01f
 #define ACC_PNOISE_DEFAULT      0.25f
 #define GBIAS_PNOISE_DEFAULT    8E-06f
 #define ABIAS_PNOISE_DEFAULT    0.00005f
 #define MAG_PNOISE_DEFAULT     0.0003f
 #define VEL_GATE_DEFAULT        5
-#define POS_GATE_DEFAULT        10
+#define POS_GATE_DEFAULT        5
 #define HGT_GATE_DEFAULT        10
 #define MAG_GATE_DEFAULT        3
 #define MAG_CAL_DEFAULT         2
-#define GLITCH_ACCEL_DEFAULT    150
-#define GLITCH_RADIUS_DEFAULT   15
+#define GLITCH_RADIUS_DEFAULT   25
 #define FLOW_MEAS_DELAY         25
 #define FLOW_NOISE_DEFAULT      0.15f
 #define FLOW_GATE_DEFAULT       5
@@ -85,8 +83,7 @@
 #define HGT_GATE_DEFAULT        20
 #define MAG_GATE_DEFAULT        3
 #define MAG_CAL_DEFAULT         0
-#define GLITCH_ACCEL_DEFAULT    150
-#define GLITCH_RADIUS_DEFAULT   20
+#define GLITCH_RADIUS_DEFAULT   25
 #define FLOW_MEAS_DELAY         25
 #define FLOW_NOISE_DEFAULT      0.3f
 #define FLOW_GATE_DEFAULT       3
@@ -290,13 +287,7 @@ const AP_Param::GroupInfo NavEKF::var_info[] PROGMEM = {
     // @User: Advanced
     AP_GROUPINFO("MAG_CAL",    22, NavEKF, _magCal, MAG_CAL_DEFAULT),
 
-    // @Param: GLITCH_ACCEL
-    // @DisplayName: GPS glitch accel gate size (cm/s^2)
-    // @Description: This parameter controls the maximum amount of difference in horizontal acceleration between the value predicted by the filter and the value measured by the GPS before the GPS position data is rejected. If this value is set too low, then valid GPS data will be regularly discarded, and the position accuracy will degrade. If this parameter is set too high, then large GPS glitches will cause large rapid changes in position.
-    // @Range: 100 500
-    // @Increment: 50
-    // @User: Advanced
-    AP_GROUPINFO("GLITCH_ACCEL",    23, NavEKF, _gpsGlitchAccelMax, GLITCH_ACCEL_DEFAULT),
+    // this slot has been deprecated and reserved for later use
 
     // @Param: GLITCH_RAD
     // @DisplayName: GPS glitch radius gate size (m)
@@ -1649,8 +1640,9 @@ void NavEKF::FuseVelPosNED()
                 // only reset the failed time and do glitch timeout checks if we are doing full aiding
                 if (PV_AidingMode == AID_ABSOLUTE) {
                     lastPosPassTime = imuSampleTime_ms;
-                    // if timed out or outside the specified glitch radius, increment the offset applied to GPS data to compensate for large GPS position jumps
-                    if (posTimeout || (maxPosInnov2 > sq(float(_gpsGlitchRadiusMax)))) {
+                    // if timed out or outside the specified uncertainty radius, increment the offset applied to GPS data to compensate for large GPS position jumps
+                    if (posTimeout || ((varInnovVelPos[3] + varInnovVelPos[4]) > sq(float(_gpsGlitchRadiusMax)))) {
+                        hal.console->printf("%i , %e , %e\n",posTimeout,P[6][6],P[7][7]);
                         gpsPosGlitchOffsetNE.x += innovVelPos[3];
                         gpsPosGlitchOffsetNE.y += innovVelPos[4];
                         // limit the radius of the offset and decay the offset to zero radially
