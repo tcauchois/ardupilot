@@ -764,6 +764,8 @@ void NavEKF::SelectMagFusion()
         // If we haven't performed the first airborne magnetic field update or have inhibited magnetic field learning, then we use the simple method of declination to maintain heading
         if(inhibitMagStates) {
             fuseCompass();
+            magHealth = true;
+            magTimeout = false;
         } else {
         // fuse the three magnetometer componenents sequentially
             for (mag_state.obsIndex = 0; mag_state.obsIndex <= 2; mag_state.obsIndex++) FuseMagnetometer();
