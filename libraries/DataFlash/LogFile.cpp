@@ -1134,11 +1134,13 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector3f wind;
     Vector3f magNED;
     Vector3f magXYZ;
+    Vector3f gyroScale;
     ahrs.get_NavEKF().getIMU1Weighting(ratio);
     ahrs.get_NavEKF().getAccelZBias(az1bias, az2bias);
     ahrs.get_NavEKF().getWind(wind);
     ahrs.get_NavEKF().getMagNED(magNED);
     ahrs.get_NavEKF().getMagXYZ(magXYZ);
+    ahrs.get_NavEKF().getGyroScale(gyroScale);
     struct log_EKF2 pkt2 = {
         LOG_PACKET_HEADER_INIT(LOG_EKF2_MSG),
         time_us : hal.scheduler->micros64(),
@@ -1152,7 +1154,10 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
         magD    : (int16_t)(magNED.z),
         magX    : (int16_t)(magXYZ.x),
         magY    : (int16_t)(magXYZ.y),
-        magZ    : (int16_t)(magXYZ.z)
+        magZ    : (int16_t)(magXYZ.z),
+        scaleX  : (int16_t)(10000*gyroScale.x), // centi percent
+        scaleY  : (int16_t)(10000*gyroScale.y), // centi percent
+        scaleZ  : (int16_t)(10000*gyroScale.z)  // centi percent
     };
     WriteBlock(&pkt2, sizeof(pkt2));
 
@@ -1161,7 +1166,9 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector3f posInnov;
     Vector3f magInnov;
     float tasInnov;
+    float tiltErr;
     ahrs.get_NavEKF().getInnovations(velInnov, posInnov, magInnov, tasInnov);
+    ahrs.get_NavEKF().getTiltError(tiltErr);
     struct log_EKF3 pkt3 = {
         LOG_PACKET_HEADER_INIT(LOG_EKF3_MSG),
         time_us : hal.scheduler->micros64(),
@@ -1174,7 +1181,8 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
         innovMX : (int16_t)(magInnov.x),
         innovMY : (int16_t)(magInnov.y),
         innovMZ : (int16_t)(magInnov.z),
-        innovVT : (int16_t)(100*tasInnov)
+        innovVT : (int16_t)(100*tasInnov),
+        tiltErr : (float)(tiltErr)
     };
     WriteBlock(&pkt3, sizeof(pkt3));
 

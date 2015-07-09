@@ -339,6 +339,9 @@ struct PACKED log_EKF2 {
     int16_t magX;
     int16_t magY;
     int16_t magZ;
+    int16_t scaleX;
+    int16_t scaleY;
+    int16_t scaleZ;
 };
 
 struct PACKED log_EKF3 {
@@ -354,6 +357,7 @@ struct PACKED log_EKF3 {
     int16_t innovMY;
     int16_t innovMZ;
     int16_t innovVT;
+    float tiltErr;
 };
 
 struct PACKED log_EKF4 {
@@ -694,9 +698,9 @@ Format characters in the format string for binary log messages
     { LOG_EKF1_MSG, sizeof(log_EKF1), \
       "EKF1","QccCffffffccc","TimeUS,Roll,Pitch,Yaw,VN,VE,VD,PN,PE,PD,GX,GY,GZ" }, \
     { LOG_EKF2_MSG, sizeof(log_EKF2), \
-      "EKF2","Qbbbcchhhhhh","TimeUS,Ratio,AZ1bias,AZ2bias,VWN,VWE,MN,ME,MD,MX,MY,MZ" }, \
+      "EKF2","Qbbbcchhhhhhccc","TimeUS,Ratio,AZ1,AZ2,VWN,VWE,MN,ME,MD,MX,MY,MZ,SX,SY,SZ" }, \
     { LOG_EKF3_MSG, sizeof(log_EKF3), \
-      "EKF3","Qcccccchhhc","TimeUS,IVN,IVE,IVD,IPN,IPE,IPD,IMX,IMY,IMZ,IVT" }, \
+      "EKF3","Qcccccchhhcf","TimeUS,IVN,IVE,IVD,IPN,IPE,IPD,IMX,IMY,IMZ,IVT,TE" }, \
     { LOG_EKF4_MSG, sizeof(log_EKF4), \
       "EKF4","QcccccccbbBBH","TimeUS,SV,SP,SH,SMX,SMY,SMZ,SVT,OFN,EFE,FS,TS,SS" }, \
     { LOG_TERRAIN_MSG, sizeof(log_TERRAIN), \
