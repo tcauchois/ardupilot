@@ -834,7 +834,8 @@ void Replay::loop()
             Vector3f velInnov;
             Vector3f posInnov;
             Vector3f magInnov;
-            float    tasInnov;
+            float tasInnov;
+            float yawInnov;
             float velVar;
             float posVar;
             float hgtVar;
@@ -854,7 +855,7 @@ void Replay::loop()
             _vehicle.EKF.getWind(windVel);
             _vehicle.EKF.getMagNED(magNED);
             _vehicle.EKF.getMagXYZ(magXYZ);
-            _vehicle.EKF.getInnovations(velInnov, posInnov, magInnov, tasInnov);
+            _vehicle.EKF.getInnovations(velInnov, posInnov, magInnov, tasInnov, yawInnov);
             _vehicle.EKF.getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
             _vehicle.EKF.getFilterFaults(faultStatus);
             _vehicle.EKF.getPosNED(ekf_relpos);
