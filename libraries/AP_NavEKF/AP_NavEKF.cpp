@@ -998,7 +998,7 @@ void  NavEKF::calcOutputStatesFast() {
 
     // multiply position error by a gain to calculate the velocity correction required to track the EKF solution
     const float Kpos = 1.0f;
-    velCorrection = (stateStruct.velocity - outputDataDelayed.velocity) * Kpos;
+    velCorrection = (stateStruct.position - outputDataDelayed.position) * Kpos;
 
 }
 
@@ -2697,6 +2697,10 @@ void NavEKF::getGyroBias(Vector3f &gyroBias) const
 // return body axis gyro scale factor estimates
 void NavEKF::getGyroScale(Vector3f &gyroScale) const
 {
+    if (!statesInitialised) {
+        gyroScale.x = gyroScale.y = gyroScale.z = 0;
+        return;
+    }
     gyroScale.x = 1.0f/stateStruct.gyro_scale.x - 1.0f;
     gyroScale.y = 1.0f/stateStruct.gyro_scale.y - 1.0f;
     gyroScale.z = 1.0f/stateStruct.gyro_scale.z - 1.0f;
