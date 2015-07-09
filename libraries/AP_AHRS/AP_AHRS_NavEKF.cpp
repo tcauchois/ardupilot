@@ -78,12 +78,8 @@ void AP_AHRS_NavEKF::update(void)
     _dcm_attitude(roll, pitch, yaw);
 
     if (!ekf_started) {
-        // wait 1 second for DCM to output a valid tilt error estimate
-        if (start_time_ms == 0) {
-            start_time_ms = hal.scheduler->millis();
-        }
         if (hal.scheduler->millis() - start_time_ms > startup_delay_ms) {
-            ekf_started = EKF.InitialiseFilterDynamic();
+            ekf_started = EKF.InitialiseFilterBootstrap();
         }
     }
     if (ekf_started) {
