@@ -199,7 +199,7 @@ public:
     void getQuaternion(Quaternion &quat) const;
 
     // return the innovations for the NED Pos, NED Vel, XYZ Mag and Vtas measurements
-    void  getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &magInnov, float &tasInnov) const;
+    void  getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &magInnov, float &tasInnov, float &yawInnov) const;
 
     // return the innovation consistency test ratios for the velocity, position, magnetometer and true airspeed measurements
     void  getVariances(float &velVar, float &posVar, float &hgtVar, Vector3f &magVar, float &tasVar, Vector2f &offset) const;
@@ -748,9 +748,10 @@ private:
     uint8_t gpsStoreIndex;          // GPS data storage index
     output_elements outputDataNew;  // output state data at the current time step
     output_elements outputDataDelayed; // output state data at the current time step
-    Vector3f delAngCorrection;
-    Vector3f delVelCorrection;
-    Vector3f velCorrection;
+    Vector3f delAngCorrection;      // correction applied to delta angles used by output observer to track the EKF
+    Vector3f delVelCorrection;      // correction applied to earth frame delta velocities used by output observer to track the EKF
+    Vector3f velCorrection;         // correction applied to velocities used by the output observer to track the EKF
+    float innovYaw;                 // compass yaw angle innovation (rad)
 
     // variables added for optical flow fusion
     bool newDataFlow;               // true when new optical flow data has arrived

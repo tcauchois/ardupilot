@@ -3496,7 +3496,7 @@ void NavEKF::getRotationBodyToNED(Matrix3f &mat) const
 }
 
 // return the innovations for the NED Pos, NED Vel, XYZ Mag and Vtas measurements
-void  NavEKF::getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &magInnov, float &tasInnov) const
+void  NavEKF::getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &magInnov, float &tasInnov, float &yawInnov) const
 {
     velInnov.x = innovVelPos[0];
     velInnov.y = innovVelPos[1];
@@ -3508,6 +3508,7 @@ void  NavEKF::getInnovations(Vector3f &velInnov, Vector3f &posInnov, Vector3f &m
     magInnov.y = 1e3f*innovMag[1]; // Convert back to sensor units
     magInnov.z = 1e3f*innovMag[2]; // Convert back to sensor units
     tasInnov   = innovVtas;
+    yawInnov   = innovYaw;
 }
 
 // return the innovation consistency test ratios for the velocity, position, magnetometer and true airspeed measurements
@@ -4312,6 +4313,9 @@ void NavEKF::fuseCompass()
 
     // Calculate the innovation
     float innovation = calcMagHeadingInnov();
+
+    // Copy raw value to output variable used for data logging
+    innovYaw = innovation;
 
     // limit the innovation so that initial corrections are not too large
     if (innovation > 0.5f) {
