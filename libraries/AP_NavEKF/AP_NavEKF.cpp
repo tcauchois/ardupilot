@@ -591,24 +591,22 @@ void NavEKF::UpdateFilter()
     // start the timer used for load measurement
     perf_begin(_perf_UpdateFilter);
 
+    // detect if the filter update has been delayed for more than 200 msec and restart
+    if (hal.scheduler->millis() - imuSampleTime_ms > 200) {
+        // we have stalled for too long - reset filter
+        InitialiseFilterBootstrap();
+        //get starting time for update step
+        imuSampleTime_ms = hal.scheduler->millis();
+        // stop the timer used for load measurement
+        perf_end(_perf_UpdateFilter);
+        return;
+    }
+
     //get starting time for update step
     imuSampleTime_ms = hal.scheduler->millis();
 
     // read IMU data and convert to delta angles and velocities
     readIMUData();
-
-    // detect if the filter update has been delayed for too long
-    if (imuDataDelayed.delAngDT > 0.2f) {
-        // we have stalled for too long - reset states
-        ResetVelocity();
-        ResetPosition();
-        ResetHeight();
-        //Initialise IMU pre-processing states
-        readIMUData();
-        // stop the timer used for load measurement
-        perf_end(_perf_UpdateFilter);
-        return;
-    }
 
     // check if on ground
     SetFlightAndFusionModes();
