@@ -671,7 +671,7 @@ void NavEKF::SelectVelPosFusion()
     // check for and read new GPS data
     readGpsData();
 
-         if (RecallGPS() && (imuDataDelayed.time_ms > gpsFixTime_ms)) {
+         if (RecallGPS()) {
             // use both if GPS use is enabled
             fuseVelData = true;
             fusePosData = true;
@@ -3151,7 +3151,7 @@ void NavEKF::readGpsData()
 
         // estimate when the GPS fix was valid, allowing for GPS processing and other delays
         // ideally we should be using a timing signal from the GPS receiver to set this time
-        gpsFixTime_ms = lastTimeGpsReceived_ms - _msecGpsDelay;
+        gpsDataNew.time_ms = lastTimeGpsReceived_ms - _msecGpsDelay;
 
         // read the NED velocity from the GPS
         gpsDataNew.vel = _ahrs->get_gps().velocity();
@@ -3214,18 +3214,23 @@ void NavEKF::readGpsData()
         // calculate a position offset which is applied to NE position and velocity wherever it is used throughout code to allow GPS position jumps to be accommodated gradually
         decayGpsOffset();
 
-        // save baro measurement to buffer to be fused later
-        gpsDataNew.time_ms = gpsFixTime_ms;
+        // save measurement to buffer to be fused later
         StoreGPS();
-
     }
 
-    // If no previous GPS lock or told not to use it, or EKF origin not set, we declare the  GPS unavailable for use
-    if ((_ahrs->get_gps().status() < AP_GPS::GPS_OK_FIX_3D) || _fusionModeGPS == 3 || !validOrigin) {
+    // If not aiding and synthesise the measurements
+    if (PV_AidingMode == AID_NONE && (_ahrs->get_gps().status() < AP_GPS::GPS_OK_FIX_3D)) {
         gpsNotAvailable = true;
+        if (imuSampleTime_ms - gpsDataNew.time_ms > 200) {
+            gpsDataNew.pos.zero();
+            gpsDataNew.time_ms = imuSampleTime_ms-_msecGpsDelay;
+            // save measurement to buffer to be fused later
+            StoreGPS();
+        }
     } else {
         gpsNotAvailable = false;
     }
+
 }
 
 // check for new altitude measurement data and update stored measurement if available
@@ -3551,7 +3556,6 @@ void NavEKF::InitialiseVariables()
     ekfStartTime_ms = imuSampleTime_ms;
     lastGpsVelFail_ms = 0;
     lastGpsAidBadTime_ms = 0;
-    gpsFixTime_ms = imuSampleTime_ms;
     hgtMeasTime_ms = imuSampleTime_ms;
     magMeasTime_ms = imuSampleTime_ms;
 
