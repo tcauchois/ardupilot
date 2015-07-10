@@ -591,16 +591,7 @@ void NavEKF::UpdateFilter()
     // start the timer used for load measurement
     perf_begin(_perf_UpdateFilter);
 
-    // detect if the filter update has been delayed for more than 200 msec and restart
-    if (hal.scheduler->millis() - imuSampleTime_ms > 200) {
-        // we have stalled for too long - reset filter
-        InitialiseFilterBootstrap();
-        //get starting time for update step
-        imuSampleTime_ms = hal.scheduler->millis();
-        // stop the timer used for load measurement
-        perf_end(_perf_UpdateFilter);
-        return;
-    }
+    // TODO - in-flight restart method
 
     //get starting time for update step
     imuSampleTime_ms = hal.scheduler->millis();
@@ -1642,7 +1633,6 @@ void NavEKF::FuseVelPosNED()
                     lastPosPassTime = imuSampleTime_ms;
                     // if timed out or outside the specified uncertainty radius, increment the offset applied to GPS data to compensate for large GPS position jumps
                     if (posTimeout || ((varInnovVelPos[3] + varInnovVelPos[4]) > sq(float(_gpsGlitchRadiusMax)))) {
-                        hal.console->printf("%i , %e , %e\n",posTimeout,P[6][6],P[7][7]);
                         gpsPosGlitchOffsetNE.x += innovVelPos[3];
                         gpsPosGlitchOffsetNE.y += innovVelPos[4];
                         // limit the radius of the offset and decay the offset to zero radially
