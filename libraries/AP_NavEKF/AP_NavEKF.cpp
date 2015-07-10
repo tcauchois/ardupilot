@@ -3780,7 +3780,7 @@ void  NavEKF::getFilterStatus(nav_filter_status &status) const
     bool someHorizRefData = !(velTimeout && posTimeout && tasTimeout) || doingFlowNav;
     bool optFlowNavPossible = flowDataValid && (_fusionModeGPS == 3);
     bool gpsNavPossible = !gpsNotAvailable && (_fusionModeGPS <= 2);
-    bool filterHealthy = healthy();
+    bool filterHealthy = healthy() && tiltAlignComplete && yawAlignComplete;
 
     // set individual flags
     status.flags.attitude = !stateStruct.quat.is_nan() && filterHealthy;   // attitude valid (we need a better check)
