@@ -332,6 +332,11 @@ private:
         uint32_t    time_ms;     // 1
     };
 
+    struct tas_elements {
+        float       tas;         // 0
+        uint32_t    time_ms;     // 1
+    };
+
     // update the quaternion, velocity and position states using IMU measurements
     void UpdateStrapdownEquationsNED();
 
@@ -355,6 +360,9 @@ private:
 
     // fuse magnetometer measurements
     void FuseMagnetometer();
+
+    // fuse true airspeed measurements
+    void FuseAirspeed();
 
     // zero specified range of rows in the state covariance matrix
     void zeroRows(Matrix24 &covMat, uint8_t first, uint8_t last);
@@ -404,6 +412,13 @@ private:
     // return true if data found
     bool RecallGPS();
 
+    // store true airspeed data
+    void StoreTAS();
+
+    // recall true airspeed data at the fusion time horizon
+    // return true if data found
+    bool RecallTAS();
+
     // calculate nav to body quaternions from body to nav rotation matrix
     void quat2Tbn(Matrix3f &Tbn, const Quaternion &quat) const;
 
@@ -432,11 +447,17 @@ private:
     // check for new magnetometer data and update store measurements if available
     void readMagData();
 
+    // check for new airspeed data and update stored measurements if available
+    void readAirSpdData();
+
     // determine when to perform fusion of GPS position and  velocity measurements
     void SelectVelPosFusion();
 
     // determine when to perform fusion of magnetometer measurements
     void SelectMagFusion();
+
+    // determine when to perform fusion of true airspeed measurements
+    void SelectTasFusion();
 
     // force alignment of the yaw angle using GPS velocity data
     void alignYawGPS();
@@ -622,6 +643,7 @@ private:
     gps_elements storedGPS[OBS_BUFFER_LENGTH];      // GPS data buffer
     mag_elements storedMag[OBS_BUFFER_LENGTH];      // Magnetometer data buffer
     baro_elements storedBaro[OBS_BUFFER_LENGTH];    // Baro data buffer
+    tas_elements storedTAS[OBS_BUFFER_LENGTH];    // TAS data buffer
     output_elements storedOutput[IMU_BUFFER_LENGTH];// output state buffer
     Vector3f correctedDelAng;       // delta angles about the xyz body axes corrected for errors (rad)
     Quaternion correctedDelAngQuat; // quaternion representation of correctedDelAng
@@ -664,7 +686,6 @@ private:
     uint32_t lastMagUpdate;         // last time compass was updated
     Vector3f velDotNED;             // rate of change of velocity in NED frame
     Vector3f velDotNEDfilt;         // low pass filtered velDotNED
-    uint32_t lastAirspeedUpdate;    // last time airspeed was updated
     uint32_t imuSampleTime_ms;      // time that the last IMU value was taken
     bool newDataMag;                // true when new magnetometer data has arrived
     bool newDataTas;                // true when new airspeed data has arrived
@@ -738,6 +759,9 @@ private:
     baro_elements baroDataNew;      // Baro data at the current time horizon
     baro_elements baroDataDelayed;  // Baro data at the fusion time horizon
     uint8_t baroStoreIndex;         // Baro data storage index
+    tas_elements tasDataNew;       // TAS data at the current time horizon
+    tas_elements tasDataDelayed;   // TAS data at the fusion time horizon
+    uint8_t tasStoreIndex;          // TAS data storage index
     mag_elements magDataNew;        // Magnetometer data at the current time horizon
     mag_elements magDataDelayed;    // Magnetometer data at the fusion time horizon
     uint8_t magStoreIndex;          // Magnetometer data storage index
@@ -750,6 +774,7 @@ private:
     Vector3f delVelCorrection;      // correction applied to earth frame delta velocities used by output observer to track the EKF
     Vector3f velCorrection;         // correction applied to velocities used by the output observer to track the EKF
     float innovYaw;                 // compass yaw angle innovation (rad)
+    uint32_t timeTasReceived_ms;    // tie last TAS data was received (msec)
 
     // variables added for optical flow fusion
     bool newDataFlow;               // true when new optical flow data has arrived

@@ -649,6 +649,9 @@ void NavEKF::UpdateFilter()
     // Update states using  magnetometer data
     SelectMagFusion();
 
+    // Update states using airspeed data
+    SelectTasFusion();
+
     // Wind output forward from the fusion to output time horizon
     calcOutputStatesFast();
 
@@ -763,6 +766,30 @@ void NavEKF::SelectMagFusion()
 
     // stop performance timer
     perf_end(_perf_FuseMagnetometer);
+}
+
+// select fusion of true airspeed measurements
+void NavEKF::SelectTasFusion()
+{
+    // get true airspeed measurement
+    readAirSpdData();
+
+    // If we haven't received airspeed data for a while, then declare the airspeed data as being timed out
+    if (imuSampleTime_ms - tasDataNew.time_ms > tasRetryTime) {
+        tasTimeout = true;
+    }
+
+    // if the filter is initialised, wind states are not inhibited and we have data to fuse, then perform TAS fusion
+    tasDataWaiting = (statesInitialised && !inhibitWindStates && newDataTas);
+    if (tasDataWaiting)
+    {
+        // ensure that the covariance prediction is up to date before fusing data
+        if (!covPredStep) CovariancePrediction();
+        FuseAirspeed();
+        TASmsecPrev = imuSampleTime_ms;
+        tasDataWaiting = false;
+        newDataTas = false;
+    }
 }
 
 // update the quaternion, velocity and position states using delayed IMU measurements
@@ -2215,6 +2242,172 @@ void NavEKF::FuseMagnetometer()
     ConstrainVariances();
 }
 
+// fuse true airspeed measurements
+void NavEKF::FuseAirspeed()
+{
+    // start performance timer
+    perf_begin(_perf_FuseAirspeed);
+
+    // declarations
+    float vn;
+    float ve;
+    float vd;
+    float vwn;
+    float vwe;
+    float EAS2TAS = _ahrs->get_EAS2TAS();
+    const float R_TAS = sq(constrain_float(_easNoise, 0.5f, 5.0f) * constrain_float(EAS2TAS, 0.9f, 10.0f));
+    Vector3 SH_TAS;
+    float SK_TAS;
+    Vector24 H_TAS;
+    float VtasPred;
+
+    // health is set bad until test passed
+    tasHealth = false;
+
+    // copy required states to local variable names
+    vn = stateStruct.velocity.x;
+    ve = stateStruct.velocity.y;
+    vd = stateStruct.velocity.z;
+    vwn = stateStruct.wind_vel.x;
+    vwe = stateStruct.wind_vel.y;
+
+    // calculate the predicted airspeed, compensating for bias in GPS velocity when we are pulling a glitch offset back in
+    VtasPred = pythagorous3((ve - gpsVelGlitchOffset.y - vwe) , (vn - gpsVelGlitchOffset.x - vwn) , vd);
+    // perform fusion of True Airspeed measurement
+    if (VtasPred > 1.0f)
+    {
+        // calculate observation jacobians
+        SH_TAS[0] = 1/(sqrt(sq(ve - vwe) + sq(vn - vwn) + sq(vd)));
+        SH_TAS[1] = (SH_TAS[0]*(2*ve - 2*vwe))/2;
+        SH_TAS[2] = (SH_TAS[0]*(2*vn - 2*vwn))/2;
+        for (uint8_t i=0; i<=2; i++) H_TAS[i] = 0.0f;
+        H_TAS[3] = SH_TAS[2];
+        H_TAS[4] = SH_TAS[1];
+        H_TAS[5] = vd*SH_TAS[0];
+        H_TAS[22] = -SH_TAS[2];
+        H_TAS[23] = -SH_TAS[1];
+        for (uint8_t i=6; i<=21; i++) H_TAS[i] = 0.0f;
+        // calculate Kalman gains
+        float temp = (R_TAS + SH_TAS[2]*(P[3][3]*SH_TAS[2] + P[4][3]*SH_TAS[1] - P[22][3]*SH_TAS[2] - P[23][3]*SH_TAS[1] + P[5][3]*vd*SH_TAS[0]) + SH_TAS[1]*(P[3][4]*SH_TAS[2] + P[4][4]*SH_TAS[1] - P[22][4]*SH_TAS[2] - P[23][4]*SH_TAS[1] + P[5][4]*vd*SH_TAS[0]) - SH_TAS[2]*(P[3][22]*SH_TAS[2] + P[4][22]*SH_TAS[1] - P[22][22]*SH_TAS[2] - P[23][22]*SH_TAS[1] + P[5][22]*vd*SH_TAS[0]) - SH_TAS[1]*(P[3][23]*SH_TAS[2] + P[4][23]*SH_TAS[1] - P[22][23]*SH_TAS[2] - P[23][23]*SH_TAS[1] + P[5][23]*vd*SH_TAS[0]) + vd*SH_TAS[0]*(P[3][5]*SH_TAS[2] + P[4][5]*SH_TAS[1] - P[22][5]*SH_TAS[2] - P[23][5]*SH_TAS[1] + P[5][5]*vd*SH_TAS[0]));
+        if (temp >= R_TAS) {
+            SK_TAS = 1.0f / temp;
+            faultStatus.bad_airspeed = false;
+        } else {
+            // the calculation is badly conditioned, so we cannot perform fusion on this step
+            // we reset the covariance matrix and try again next measurement
+            CovarianceInit();
+            faultStatus.bad_airspeed = true;
+            return;
+        }
+        Kfusion[0] = SK_TAS*(P[0][3]*SH_TAS[2] - P[0][22]*SH_TAS[2] + P[0][4]*SH_TAS[1] - P[0][23]*SH_TAS[1] + P[0][5]*vd*SH_TAS[0]);
+        Kfusion[1] = SK_TAS*(P[1][3]*SH_TAS[2] - P[1][22]*SH_TAS[2] + P[1][4]*SH_TAS[1] - P[1][23]*SH_TAS[1] + P[1][5]*vd*SH_TAS[0]);
+        Kfusion[2] = SK_TAS*(P[2][3]*SH_TAS[2] - P[2][22]*SH_TAS[2] + P[2][4]*SH_TAS[1] - P[2][23]*SH_TAS[1] + P[2][5]*vd*SH_TAS[0]);
+        Kfusion[3] = SK_TAS*(P[3][3]*SH_TAS[2] - P[3][22]*SH_TAS[2] + P[3][4]*SH_TAS[1] - P[3][23]*SH_TAS[1] + P[3][5]*vd*SH_TAS[0]);
+        Kfusion[4] = SK_TAS*(P[4][3]*SH_TAS[2] - P[4][22]*SH_TAS[2] + P[4][4]*SH_TAS[1] - P[4][23]*SH_TAS[1] + P[4][5]*vd*SH_TAS[0]);
+        Kfusion[5] = SK_TAS*(P[5][3]*SH_TAS[2] - P[5][22]*SH_TAS[2] + P[5][4]*SH_TAS[1] - P[5][23]*SH_TAS[1] + P[5][5]*vd*SH_TAS[0]);
+        Kfusion[6] = SK_TAS*(P[6][3]*SH_TAS[2] - P[6][22]*SH_TAS[2] + P[6][4]*SH_TAS[1] - P[6][23]*SH_TAS[1] + P[6][5]*vd*SH_TAS[0]);
+        Kfusion[7] = SK_TAS*(P[7][3]*SH_TAS[2] - P[7][22]*SH_TAS[2] + P[7][4]*SH_TAS[1] - P[7][23]*SH_TAS[1] + P[7][5]*vd*SH_TAS[0]);
+        Kfusion[8] = SK_TAS*(P[8][3]*SH_TAS[2] - P[8][22]*SH_TAS[2] + P[8][4]*SH_TAS[1] - P[8][23]*SH_TAS[1] + P[8][5]*vd*SH_TAS[0]);
+        Kfusion[9] = SK_TAS*(P[9][3]*SH_TAS[2] - P[9][22]*SH_TAS[2] + P[9][4]*SH_TAS[1] - P[9][23]*SH_TAS[1] + P[9][5]*vd*SH_TAS[0]);
+        Kfusion[10] = SK_TAS*(P[10][3]*SH_TAS[2] - P[10][22]*SH_TAS[2] + P[10][4]*SH_TAS[1] - P[10][23]*SH_TAS[1] + P[10][5]*vd*SH_TAS[0]);
+        Kfusion[11] = SK_TAS*(P[11][3]*SH_TAS[2] - P[11][22]*SH_TAS[2] + P[11][4]*SH_TAS[1] - P[11][23]*SH_TAS[1] + P[11][5]*vd*SH_TAS[0]);
+        Kfusion[12] = SK_TAS*(P[12][3]*SH_TAS[2] - P[12][22]*SH_TAS[2] + P[12][4]*SH_TAS[1] - P[12][23]*SH_TAS[1] + P[12][5]*vd*SH_TAS[0]);
+        Kfusion[13] = SK_TAS*(P[13][3]*SH_TAS[2] - P[13][22]*SH_TAS[2] + P[13][4]*SH_TAS[1] - P[13][23]*SH_TAS[1] + P[13][5]*vd*SH_TAS[0]);
+        Kfusion[14] = SK_TAS*(P[14][3]*SH_TAS[2] - P[14][22]*SH_TAS[2] + P[14][4]*SH_TAS[1] - P[14][23]*SH_TAS[1] + P[14][5]*vd*SH_TAS[0]);
+        // this term has been zeroed to improve stability of the Z accel bias
+        Kfusion[15] = 0.0f;// SK_TAS*(P[15][3]*SH_TAS[2] - P[15][22]*SH_TAS[2] + P[15][4]*SH_TAS[1] - P[15][23]*SH_TAS[1] + P[15][5]*vd*SH_TAS[0]);
+        Kfusion[22] = SK_TAS*(P[22][3]*SH_TAS[2] - P[22][22]*SH_TAS[2] + P[22][4]*SH_TAS[1] - P[22][23]*SH_TAS[1] + P[22][5]*vd*SH_TAS[0]);
+        Kfusion[23] = SK_TAS*(P[23][3]*SH_TAS[2] - P[23][22]*SH_TAS[2] + P[23][4]*SH_TAS[1] - P[23][23]*SH_TAS[1] + P[23][5]*vd*SH_TAS[0]);
+        // zero Kalman gains to inhibit magnetic field state estimation
+        if (!inhibitMagStates) {
+            Kfusion[16] = SK_TAS*(P[16][3]*SH_TAS[2] - P[16][22]*SH_TAS[2] + P[16][4]*SH_TAS[1] - P[16][23]*SH_TAS[1] + P[16][5]*vd*SH_TAS[0]);
+            Kfusion[17] = SK_TAS*(P[17][3]*SH_TAS[2] - P[17][22]*SH_TAS[2] + P[17][4]*SH_TAS[1] - P[17][23]*SH_TAS[1] + P[17][5]*vd*SH_TAS[0]);
+            Kfusion[18] = SK_TAS*(P[18][3]*SH_TAS[2] - P[18][22]*SH_TAS[2] + P[18][4]*SH_TAS[1] - P[18][23]*SH_TAS[1] + P[18][5]*vd*SH_TAS[0]);
+            Kfusion[19] = SK_TAS*(P[19][3]*SH_TAS[2] - P[19][22]*SH_TAS[2] + P[19][4]*SH_TAS[1] - P[19][23]*SH_TAS[1] + P[19][5]*vd*SH_TAS[0]);
+            Kfusion[20] = SK_TAS*(P[20][3]*SH_TAS[2] - P[20][22]*SH_TAS[2] + P[20][4]*SH_TAS[1] - P[20][23]*SH_TAS[1] + P[20][5]*vd*SH_TAS[0]);
+            Kfusion[21] = SK_TAS*(P[21][3]*SH_TAS[2] - P[21][22]*SH_TAS[2] + P[21][4]*SH_TAS[1] - P[21][23]*SH_TAS[1] + P[21][5]*vd*SH_TAS[0]);
+        } else {
+            for (uint8_t i=16; i<=21; i++) {
+                Kfusion[i] = 0.0f;
+            }
+        }
+
+        // calculate measurement innovation variance
+        varInnovVtas = 1.0f/SK_TAS;
+
+        // calculate measurement innovation
+        innovVtas = VtasPred - tasDataDelayed.tas;
+
+        // calculate the innovation consistency test ratio
+        tasTestRatio = sq(innovVtas) / (sq(_tasInnovGate) * varInnovVtas);
+
+        // fail if the ratio is > 1, but don't fail if bad IMU data
+        tasHealth = ((tasTestRatio < 1.0f) || badIMUdata);
+        tasTimeout = (imuSampleTime_ms - lastTasPassTime) > tasRetryTime;
+
+        // test the ratio before fusing data, forcing fusion if airspeed and position are timed out as we have no choice but to try and use airspeed to constrain error growth
+        if (tasHealth || (tasTimeout && posTimeout)) {
+
+            // restart the counter
+            lastTasPassTime = imuSampleTime_ms;
+
+
+            // zero the attitude error state - by definition it is assumed to be zero before each observaton fusion
+            stateStruct.angErr.zero();
+
+            // correct the state vector
+            for (uint8_t j= 0; j<=stateIndexLim; j++) {
+                statesArray[j] = statesArray[j] - Kfusion[j] * innovVtas;
+            }
+
+            // the first 3 states represent the angular misalignment vector. This is
+            // is used to correct the estimated quaternion on the current time step
+            correctQuatStates(stateStruct.angErr);
+
+            // correct the covariance P = (I - K*H)*P
+            // take advantage of the empty columns in KH to reduce the
+            // number of operations
+            for (uint8_t i = 0; i<=stateIndexLim; i++) {
+                for (uint8_t j = 0; j<=2; j++) {
+                    KH[i][j] = 0.0f;
+                }
+                for (uint8_t j = 3; j<=5; j++) {
+                    KH[i][j] = Kfusion[i] * H_TAS[j];
+                }
+                for (uint8_t j = 6; j<=21; j++) {
+                        KH[i][j] = 0.0f;
+                }
+                for (uint8_t j = 22; j<=23; j++) {
+                    KH[i][j] = Kfusion[i] * H_TAS[j];
+                }
+            }
+            for (uint8_t i = 0; i<=stateIndexLim; i++) {
+                for (uint8_t j = 0; j<=stateIndexLim; j++) {
+                    KHP[i][j] = 0;
+                    for (uint8_t k = 3; k<=5; k++) {
+                        KHP[i][j] = KHP[i][j] + KH[i][k] * P[k][j];
+                    }
+                    for (uint8_t k = 22; k<=23; k++) {
+                        KHP[i][j] = KHP[i][j] + KH[i][k] * P[k][j];
+                    }
+                }
+            }
+            for (uint8_t i = 0; i<=stateIndexLim; i++) {
+                for (uint8_t j = 0; j<=stateIndexLim; j++) {
+                    P[i][j] = P[i][j] - KHP[i][j];
+                }
+            }
+        }
+    }
+
+    // force the covariance matrix to me symmetrical and limit the variances to prevent ill-condiioning.
+    ForceSymmetry();
+    ConstrainVariances();
+
+    // stop performance timer
+    perf_end(_perf_FuseAirspeed);
+}
+
 /*
 Estimation of terrain offset using a single state EKF
 The filter can fuse motion compensated optiocal flow rates and range finder measurements
@@ -2495,6 +2688,16 @@ void NavEKF::StoreBaro()
         baroStoreIndex += 1;
 }
 
+// store TAS in a history array
+void NavEKF::StoreTAS()
+{
+        if (tasStoreIndex >= OBS_BUFFER_LENGTH) {
+            tasStoreIndex = 0;
+        }
+        storedTAS[tasStoreIndex] = tasDataNew;
+        tasStoreIndex += 1;
+}
+
 // return newest un-used baro data that has fallen behind the fusion time horizon
 // if no un-used data is available behind the fusion horizon, return false
 bool NavEKF::RecallBaro()
@@ -2512,6 +2715,34 @@ bool NavEKF::RecallBaro()
             // Find the most recent non-stale measurement that meets the time horizon criteria
             if (((imuDataDelayed.time_ms - dataTemp.time_ms) < 500) && dataTemp.time_ms > temp_ms) {
                 baroDataDelayed = dataTemp;
+                temp_ms = dataTemp.time_ms;
+            }
+        }
+    }
+    if (temp_ms != 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+// return newest un-used true airspeed data that has fallen behind the fusion time horizon
+// if no un-used data is available behind the fusion horizon, return false
+bool NavEKF::RecallTAS()
+{
+    tas_elements dataTemp;
+    tas_elements dataTempZero;
+    dataTempZero.time_ms = 0;
+    uint32_t temp_ms = 0;
+    for (uint8_t i=0; i<OBS_BUFFER_LENGTH; i++) {
+        dataTemp = storedTAS[i];
+        // find a measurement older than the fusion time horizon that we haven't checked before
+        if (dataTemp.time_ms != 0 && dataTemp.time_ms <= imuDataDelayed.time_ms) {
+            // zero the time stamp so we won't use it again
+            storedTAS[i]=dataTempZero;
+            // Find the most recent non-stale measurement that meets the time horizon criteria
+            if (((imuDataDelayed.time_ms - dataTemp.time_ms) < 500) && dataTemp.time_ms > temp_ms) {
+                tasDataDelayed = dataTemp;
                 temp_ms = dataTemp.time_ms;
             }
         }
@@ -2939,8 +3170,8 @@ void NavEKF::SetFlightAndFusionModes()
     }
     // store current on-ground status for next time
     prevOnGround = onGround;
-    // Wind state estimation disabled in this prototype untl we get the airspeed and sythetic sideslip fusion integrated
-    inhibitWindStates = true;
+    // If we are on ground, or in constant position mode, or don't have the right vehicle and sensing to estimate wind, inhibit wind states
+    inhibitWindStates = ((!useAirspeed() && !assume_zero_sideslip()) || onGround || constPosMode);
     // request mag calibration for both in-air and manoeuvre threshold options
     bool magCalRequested = ((_magCal == 0) && !onGround) || ((_magCal == 1) && manoeuvring)  || (_magCal == 3);
     // deny mag calibration request if we aren't using the compass, are in the pre-arm constant position mode or it has been inhibited by the user
@@ -3308,6 +3539,27 @@ void NavEKF::readMagData()
     }
 }
 
+// check for new airspeed data and update stored measurements if available
+void NavEKF::readAirSpdData()
+{
+    // if airspeed reading is valid and is set by the user to be used and has been updated then
+    // we take a new reading, convert from EAS to TAS and set the flag letting other functions
+    // know a new measurement is available
+    const AP_Airspeed *aspeed = _ahrs->get_airspeed();
+    if (aspeed &&
+        aspeed->use() &&
+        aspeed->last_update_ms() != timeTasReceived_ms) {
+        tasDataNew.tas = aspeed->get_airspeed() * aspeed->get_EAS2TAS();
+        timeTasReceived_ms = aspeed->last_update_ms();
+        tasDataNew.time_ms = timeTasReceived_ms - msecTasDelay;
+        newDataTas = true;
+        StoreTAS();
+        RecallTAS();
+    } else {
+        newDataTas = false;
+    }
+}
+
 // write the raw optical flow measurements
 // this needs to be called externally.
 void NavEKF::writeOptFlowMeas(uint8_t &rawFlowQuality, Vector2f &rawFlowRates, Vector2f &rawGyroRates, uint32_t &msecFlowMeas)
@@ -3527,7 +3779,6 @@ void NavEKF::InitialiseVariables()
     BETAmsecPrev = imuSampleTime_ms;
     lastMagUpdate = 0;
     lastHgtReceived_ms = imuSampleTime_ms;
-    lastAirspeedUpdate = 0;
     lastVelPassTime = imuSampleTime_ms;
     lastPosPassTime = imuSampleTime_ms;
     lastPosFailTime = 0;
@@ -3548,6 +3799,7 @@ void NavEKF::InitialiseVariables()
     lastGpsAidBadTime_ms = 0;
     hgtMeasTime_ms = imuSampleTime_ms;
     magMeasTime_ms = imuSampleTime_ms;
+    timeTasReceived_ms = 0;
 
     // initialise other variables
     gpsNoiseScaler = 1.0f;
@@ -3629,6 +3881,7 @@ void NavEKF::InitialiseVariables()
     baroStoreIndex = 0;
     magStoreIndex = 0;
     gpsStoreIndex = 0;
+    tasStoreIndex = 0;
     delAngCorrection.zero();
     delVelCorrection.zero();
     velCorrection.zero();
