@@ -652,6 +652,9 @@ void NavEKF::UpdateFilter()
     // Update states using airspeed data
     SelectTasFusion();
 
+    // Update states using sideslip constraint assumption for fly-forward vehicles
+    SelectBetaFusion();
+
     // Wind output forward from the fusion to output time horizon
     calcOutputStatesFast();
 
@@ -789,6 +792,26 @@ void NavEKF::SelectTasFusion()
         TASmsecPrev = imuSampleTime_ms;
         tasDataWaiting = false;
         newDataTas = false;
+    }
+}
+
+// select fusion of synthetic sideslip measurements
+// synthetic sidelip fusion only works for fixed wing aircraft and relies on the average sideslip being close to zero
+// it requires a stable wind for best results and should not be used for aerobatic flight with manoeuvres that induce large sidslip angles (eg knife-edge, spins, etc)
+void NavEKF::SelectBetaFusion()
+{
+    // set true when the fusion time interval has triggered
+    bool f_timeTrigger = ((imuSampleTime_ms - BETAmsecPrev) >= msecBetaAvg);
+    // set true when use of synthetic sideslip fusion is necessary because we have limited sensor data or are dead reckoning position
+    bool f_required = !(use_compass() && useAirspeed() && ((imuSampleTime_ms - lastPosPassTime) < gpsRetryTimeNoTAS));
+    // set true when sideslip fusion is feasible (requires zero sideslip assumption to be valid and use of wind states)
+    bool f_feasible = (assume_zero_sideslip() && !inhibitWindStates);
+    // use synthetic sideslip fusion if feasible, required and enough time has lapsed since the last fusion
+    if (f_feasible && f_required && f_timeTrigger) {
+        // ensure that the covariance prediction is up to date before fusing data
+        if (!covPredStep) CovariancePrediction();
+        FuseSideslip();
+        BETAmsecPrev = imuSampleTime_ms;
     }
 }
 
@@ -1546,8 +1569,6 @@ void NavEKF::FuseVelPosNED()
 
     // declare variables used to check measurement errors
     Vector3f velInnov;
-    Vector3f velInnov1;
-    Vector3f velInnov2;
 
     // declare variables used to control access to arrays
     bool fuseData[6] = {false,false,false,false,false,false};
@@ -2406,6 +2427,190 @@ void NavEKF::FuseAirspeed()
 
     // stop performance timer
     perf_end(_perf_FuseAirspeed);
+}
+
+// fuse sythetic sideslip measurement of zero
+void NavEKF::FuseSideslip()
+{
+    // start performance timer
+    perf_begin(_perf_FuseSideslip);
+
+    // declarations
+    float q0;
+    float q1;
+    float q2;
+    float q3;
+    float vn;
+    float ve;
+    float vd;
+    float vwn;
+    float vwe;
+    const float R_BETA = 0.03f; // assume a sideslip angle RMS of ~10 deg
+    Vector10 SH_BETA;
+    Vector5 SK_BETA;
+    Vector3f vel_rel_wind;
+    Vector24 H_BETA;
+    float innovBeta;
+
+    // copy required states to local variable names
+    q0 = stateStruct.quat[0];
+    q1 = stateStruct.quat[1];
+    q2 = stateStruct.quat[2];
+    q3 = stateStruct.quat[3];
+    vn = stateStruct.velocity.x;
+    ve = stateStruct.velocity.y;
+    vd = stateStruct.velocity.z;
+    vwn = stateStruct.wind_vel.x;
+    vwe = stateStruct.wind_vel.y;
+
+    // calculate predicted wind relative velocity in NED, compensating for offset in velcity when we are pulling a GPS glitch offset back in
+    vel_rel_wind.x = vn - vwn - gpsVelGlitchOffset.x;
+    vel_rel_wind.y = ve - vwe - gpsVelGlitchOffset.y;
+    vel_rel_wind.z = vd;
+
+    // rotate into body axes
+    vel_rel_wind = prevTnb * vel_rel_wind;
+
+    // perform fusion of assumed sideslip  = 0
+    if (vel_rel_wind.x > 5.0f)
+    {
+        // Calculate observation jacobians
+        SH_BETA[0] = (vn - vwn)*(sq(q0) + sq(q1) - sq(q2) - sq(q3)) - vd*(2*q0*q2 - 2*q1*q3) + (ve - vwe)*(2*q0*q3 + 2*q1*q2);
+        if (fabsf(SH_BETA[0]) <= 1e-9f) {
+            faultStatus.bad_sideslip = true;
+            return;
+        } else {
+            faultStatus.bad_sideslip = false;
+        }
+        SH_BETA[0] = (vn - vwn)*(sq(q0) + sq(q1) - sq(q2) - sq(q3)) - vd*(2*q0*q2 - 2*q1*q3) + (ve - vwe)*(2*q0*q3 + 2*q1*q2);
+        SH_BETA[1] = (ve - vwe)*(sq(q0) - sq(q1) + sq(q2) - sq(q3)) + vd*(2*q0*q1 + 2*q2*q3) - (vn - vwn)*(2*q0*q3 - 2*q1*q2);
+        SH_BETA[2] = vd*(sq(q0) - sq(q1) - sq(q2) + sq(q3)) - (ve - vwe)*(2*q0*q1 - 2*q2*q3) + (vn - vwn)*(2*q0*q2 + 2*q1*q3);
+        SH_BETA[3] = 1/sq(SH_BETA[0]);
+        SH_BETA[4] = (sq(q0) - sq(q1) + sq(q2) - sq(q3))/SH_BETA[0];
+        SH_BETA[5] = sq(q0) + sq(q1) - sq(q2) - sq(q3);
+        SH_BETA[6] = 1/SH_BETA[0];
+        SH_BETA[7] = 2*q0*q3;
+        SH_BETA[8] = SH_BETA[7] + 2*q1*q2;
+        SH_BETA[9] = SH_BETA[7] - 2*q1*q2;
+        H_BETA[0] = SH_BETA[2]*SH_BETA[6];
+        H_BETA[1] = SH_BETA[1]*SH_BETA[2]*SH_BETA[3];
+        H_BETA[2] = - sq(SH_BETA[1])*SH_BETA[3] - 1;
+        H_BETA[3] = - SH_BETA[6]*SH_BETA[9] - SH_BETA[1]*SH_BETA[3]*SH_BETA[5];
+        H_BETA[4] = SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8];
+        H_BETA[5] = SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3);
+        for (uint8_t i=6; i<=21; i++) {
+            H_BETA[i] = 0.0f;
+        }
+        H_BETA[22] = SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5];
+        H_BETA[23] = SH_BETA[1]*SH_BETA[3]*SH_BETA[8] - SH_BETA[4];
+
+        // Calculate Kalman gains
+        float temp = (R_BETA + (SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8])*(P[22][4]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][4]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][4]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][4]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][4]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][4]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][4]*SH_BETA[2]*SH_BETA[6] + P[1][4]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) - (SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8])*(P[22][23]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][23]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][23]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][23]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][23]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][23]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][23]*SH_BETA[2]*SH_BETA[6] + P[1][23]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) - (SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5])*(P[22][3]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][3]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][3]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][3]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][3]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][3]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][3]*SH_BETA[2]*SH_BETA[6] + P[1][3]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) + (SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5])*(P[22][22]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][22]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][22]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][22]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][22]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][22]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][22]*SH_BETA[2]*SH_BETA[6] + P[1][22]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) - (sq(SH_BETA[1])*SH_BETA[3] + 1)*(P[22][2]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][2]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][2]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][2]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][2]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][2]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][2]*SH_BETA[2]*SH_BETA[6] + P[1][2]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) + (SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3))*(P[22][5]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][5]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][5]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][5]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][5]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][5]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][5]*SH_BETA[2]*SH_BETA[6] + P[1][5]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) + SH_BETA[2]*SH_BETA[6]*(P[22][0]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][0]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][0]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][0]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][0]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][0]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][0]*SH_BETA[2]*SH_BETA[6] + P[1][0]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]) + SH_BETA[1]*SH_BETA[2]*SH_BETA[3]*(P[22][1]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[3][1]*(SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5]) - P[2][1]*(sq(SH_BETA[1])*SH_BETA[3] + 1) + P[5][1]*(SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3)) + P[4][1]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) - P[23][1]*(SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8]) + P[0][1]*SH_BETA[2]*SH_BETA[6] + P[1][1]*SH_BETA[1]*SH_BETA[2]*SH_BETA[3]));
+        if (temp >= R_BETA) {
+            SK_BETA[0] = 1.0f / temp;
+            faultStatus.bad_sideslip = false;
+        } else {
+            // the calculation is badly conditioned, so we cannot perform fusion on this step
+            // we reset the covariance matrix and try again next measurement
+            CovarianceInit();
+            faultStatus.bad_sideslip = true;
+            return;
+        }
+        SK_BETA[1] = SH_BETA[6]*(2*q0*q1 + 2*q2*q3) + SH_BETA[1]*SH_BETA[3]*(2*q0*q2 - 2*q1*q3);
+        SK_BETA[2] = SH_BETA[6]*SH_BETA[9] + SH_BETA[1]*SH_BETA[3]*SH_BETA[5];
+        SK_BETA[3] = SH_BETA[4] - SH_BETA[1]*SH_BETA[3]*SH_BETA[8];
+        SK_BETA[4] = sq(SH_BETA[1])*SH_BETA[3] + 1;
+        Kfusion[0] = SK_BETA[0]*(P[0][5]*SK_BETA[1] - P[0][2]*SK_BETA[4] - P[0][3]*SK_BETA[2] + P[0][4]*SK_BETA[3] + P[0][22]*SK_BETA[2] - P[0][23]*SK_BETA[3] + P[0][0]*SH_BETA[6]*SH_BETA[2] + P[0][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[1] = SK_BETA[0]*(P[1][5]*SK_BETA[1] - P[1][2]*SK_BETA[4] - P[1][3]*SK_BETA[2] + P[1][4]*SK_BETA[3] + P[1][22]*SK_BETA[2] - P[1][23]*SK_BETA[3] + P[1][0]*SH_BETA[6]*SH_BETA[2] + P[1][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[2] = SK_BETA[0]*(P[2][5]*SK_BETA[1] - P[2][2]*SK_BETA[4] - P[2][3]*SK_BETA[2] + P[2][4]*SK_BETA[3] + P[2][22]*SK_BETA[2] - P[2][23]*SK_BETA[3] + P[2][0]*SH_BETA[6]*SH_BETA[2] + P[2][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[3] = SK_BETA[0]*(P[3][5]*SK_BETA[1] - P[3][2]*SK_BETA[4] - P[3][3]*SK_BETA[2] + P[3][4]*SK_BETA[3] + P[3][22]*SK_BETA[2] - P[3][23]*SK_BETA[3] + P[3][0]*SH_BETA[6]*SH_BETA[2] + P[3][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[4] = SK_BETA[0]*(P[4][5]*SK_BETA[1] - P[4][2]*SK_BETA[4] - P[4][3]*SK_BETA[2] + P[4][4]*SK_BETA[3] + P[4][22]*SK_BETA[2] - P[4][23]*SK_BETA[3] + P[4][0]*SH_BETA[6]*SH_BETA[2] + P[4][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[5] = SK_BETA[0]*(P[5][5]*SK_BETA[1] - P[5][2]*SK_BETA[4] - P[5][3]*SK_BETA[2] + P[5][4]*SK_BETA[3] + P[5][22]*SK_BETA[2] - P[5][23]*SK_BETA[3] + P[5][0]*SH_BETA[6]*SH_BETA[2] + P[5][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[6] = SK_BETA[0]*(P[6][5]*SK_BETA[1] - P[6][2]*SK_BETA[4] - P[6][3]*SK_BETA[2] + P[6][4]*SK_BETA[3] + P[6][22]*SK_BETA[2] - P[6][23]*SK_BETA[3] + P[6][0]*SH_BETA[6]*SH_BETA[2] + P[6][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[7] = SK_BETA[0]*(P[7][5]*SK_BETA[1] - P[7][2]*SK_BETA[4] - P[7][3]*SK_BETA[2] + P[7][4]*SK_BETA[3] + P[7][22]*SK_BETA[2] - P[7][23]*SK_BETA[3] + P[7][0]*SH_BETA[6]*SH_BETA[2] + P[7][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[8] = SK_BETA[0]*(P[8][5]*SK_BETA[1] - P[8][2]*SK_BETA[4] - P[8][3]*SK_BETA[2] + P[8][4]*SK_BETA[3] + P[8][22]*SK_BETA[2] - P[8][23]*SK_BETA[3] + P[8][0]*SH_BETA[6]*SH_BETA[2] + P[8][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[9] = SK_BETA[0]*(P[9][5]*SK_BETA[1] - P[9][2]*SK_BETA[4] - P[9][3]*SK_BETA[2] + P[9][4]*SK_BETA[3] + P[9][22]*SK_BETA[2] - P[9][23]*SK_BETA[3] + P[9][0]*SH_BETA[6]*SH_BETA[2] + P[9][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[10] = SK_BETA[0]*(P[10][5]*SK_BETA[1] - P[10][2]*SK_BETA[4] - P[10][3]*SK_BETA[2] + P[10][4]*SK_BETA[3] + P[10][22]*SK_BETA[2] - P[10][23]*SK_BETA[3] + P[10][0]*SH_BETA[6]*SH_BETA[2] + P[10][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[11] = SK_BETA[0]*(P[11][5]*SK_BETA[1] - P[11][2]*SK_BETA[4] - P[11][3]*SK_BETA[2] + P[11][4]*SK_BETA[3] + P[11][22]*SK_BETA[2] - P[11][23]*SK_BETA[3] + P[11][0]*SH_BETA[6]*SH_BETA[2] + P[11][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[12] = SK_BETA[0]*(P[12][5]*SK_BETA[1] - P[12][2]*SK_BETA[4] - P[12][3]*SK_BETA[2] + P[12][4]*SK_BETA[3] + P[12][22]*SK_BETA[2] - P[12][23]*SK_BETA[3] + P[12][0]*SH_BETA[6]*SH_BETA[2] + P[12][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[13] = SK_BETA[0]*(P[13][5]*SK_BETA[1] - P[13][2]*SK_BETA[4] - P[13][3]*SK_BETA[2] + P[13][4]*SK_BETA[3] + P[13][22]*SK_BETA[2] - P[13][23]*SK_BETA[3] + P[13][0]*SH_BETA[6]*SH_BETA[2] + P[13][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[14] = SK_BETA[0]*(P[14][5]*SK_BETA[1] - P[14][2]*SK_BETA[4] - P[14][3]*SK_BETA[2] + P[14][4]*SK_BETA[3] + P[14][22]*SK_BETA[2] - P[14][23]*SK_BETA[3] + P[14][0]*SH_BETA[6]*SH_BETA[2] + P[14][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        // this term has been zeroed to improve stability of the Z accel bias
+        Kfusion[15] = 0.0f;//SK_BETA[0]*(P[15][5]*SK_BETA[1] - P[15][2]*SK_BETA[4] - P[15][3]*SK_BETA[2] + P[15][4]*SK_BETA[3] + P[15][22]*SK_BETA[2] - P[15][23]*SK_BETA[3] + P[15][0]*SH_BETA[6]*SH_BETA[2] + P[15][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[22] = SK_BETA[0]*(P[22][5]*SK_BETA[1] - P[22][2]*SK_BETA[4] - P[22][3]*SK_BETA[2] + P[22][4]*SK_BETA[3] + P[22][22]*SK_BETA[2] - P[22][23]*SK_BETA[3] + P[22][0]*SH_BETA[6]*SH_BETA[2] + P[22][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        Kfusion[23] = SK_BETA[0]*(P[23][5]*SK_BETA[1] - P[23][2]*SK_BETA[4] - P[23][3]*SK_BETA[2] + P[23][4]*SK_BETA[3] + P[23][22]*SK_BETA[2] - P[23][23]*SK_BETA[3] + P[23][0]*SH_BETA[6]*SH_BETA[2] + P[23][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        // zero Kalman gains to inhibit magnetic field state estimation
+        if (!inhibitMagStates) {
+            Kfusion[16] = SK_BETA[0]*(P[16][5]*SK_BETA[1] - P[16][2]*SK_BETA[4] - P[16][3]*SK_BETA[2] + P[16][4]*SK_BETA[3] + P[16][22]*SK_BETA[2] - P[16][23]*SK_BETA[3] + P[16][0]*SH_BETA[6]*SH_BETA[2] + P[16][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+            Kfusion[17] = SK_BETA[0]*(P[17][5]*SK_BETA[1] - P[17][2]*SK_BETA[4] - P[17][3]*SK_BETA[2] + P[17][4]*SK_BETA[3] + P[17][22]*SK_BETA[2] - P[17][23]*SK_BETA[3] + P[17][0]*SH_BETA[6]*SH_BETA[2] + P[17][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+            Kfusion[18] = SK_BETA[0]*(P[18][5]*SK_BETA[1] - P[18][2]*SK_BETA[4] - P[18][3]*SK_BETA[2] + P[18][4]*SK_BETA[3] + P[18][22]*SK_BETA[2] - P[18][23]*SK_BETA[3] + P[18][0]*SH_BETA[6]*SH_BETA[2] + P[18][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+            Kfusion[19] = SK_BETA[0]*(P[19][5]*SK_BETA[1] - P[19][2]*SK_BETA[4] - P[19][3]*SK_BETA[2] + P[19][4]*SK_BETA[3] + P[19][22]*SK_BETA[2] - P[19][23]*SK_BETA[3] + P[19][0]*SH_BETA[6]*SH_BETA[2] + P[19][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+            Kfusion[20] = SK_BETA[0]*(P[20][5]*SK_BETA[1] - P[20][2]*SK_BETA[4] - P[20][3]*SK_BETA[2] + P[20][4]*SK_BETA[3] + P[20][22]*SK_BETA[2] - P[20][23]*SK_BETA[3] + P[20][0]*SH_BETA[6]*SH_BETA[2] + P[20][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+            Kfusion[21] = SK_BETA[0]*(P[21][5]*SK_BETA[1] - P[21][2]*SK_BETA[4] - P[21][3]*SK_BETA[2] + P[21][4]*SK_BETA[3] + P[21][22]*SK_BETA[2] - P[21][23]*SK_BETA[3] + P[21][0]*SH_BETA[6]*SH_BETA[2] + P[21][1]*SH_BETA[1]*SH_BETA[3]*SH_BETA[2]);
+        } else {
+            for (uint8_t i=16; i<=21; i++) {
+                Kfusion[i] = 0.0f;
+            }
+        }
+
+        // calculate predicted sideslip angle and innovation using small angle approximation
+        innovBeta = vel_rel_wind.y / vel_rel_wind.x;
+
+        // reject measurement if greater than 3-sigma inconsistency
+        if (innovBeta > 0.5f) {
+            return;
+        }
+
+        // zero the attitude error state - by definition it is assumed to be zero before each observaton fusion
+        stateStruct.angErr.zero();
+
+        // correct the state vector
+        for (uint8_t j= 0; j<=stateIndexLim; j++) {
+            statesArray[j] = statesArray[j] - Kfusion[j] * innovBeta;
+        }
+
+        // the first 3 states represent the angular misalignment vector. This is
+        // is used to correct the estimated quaternion on the current time step
+        correctQuatStates(stateStruct.angErr);
+
+        // correct the covariance P = (I - K*H)*P
+        // take advantage of the empty columns in KH to reduce the
+        // number of operations
+        for (uint8_t i = 0; i<=stateIndexLim; i++) {
+            for (uint8_t j = 0; j<=5; j++) {
+                KH[i][j] = Kfusion[i] * H_BETA[j];
+            }
+            for (uint8_t j = 6; j<=21; j++) {
+                    KH[i][j] = 0.0f;
+            }
+            for (uint8_t j = 22; j<=23; j++) {
+                KH[i][j] = Kfusion[i] * H_BETA[j];
+            }
+        }
+        for (uint8_t i = 0; i<=stateIndexLim; i++) {
+            for (uint8_t j = 0; j<=stateIndexLim; j++) {
+                KHP[i][j] = 0;
+                for (uint8_t k = 0; k<=5; k++) {
+                    KHP[i][j] = KHP[i][j] + KH[i][k] * P[k][j];
+                }
+                for (uint8_t k = 22; k<=23; k++) {
+                    KHP[i][j] = KHP[i][j] + KH[i][k] * P[k][j];
+                }
+            }
+        }
+        for (uint8_t i = 0; i<=stateIndexLim; i++) {
+            for (uint8_t j = 0; j<=stateIndexLim; j++) {
+                P[i][j] = P[i][j] - KHP[i][j];
+            }
+        }
+    }
+
+    // force the covariance matrix to me symmetrical and limit the variances to prevent ill-condiioning.
+    ForceSymmetry();
+    ConstrainVariances();
+
+    // stop the performance timer
+    perf_end(_perf_FuseSideslip);
 }
 
 /*
@@ -3891,7 +4096,7 @@ void NavEKF::InitialiseVariables()
 // return true if we should use the airspeed sensor
 bool NavEKF::useAirspeed(void) const
 {
-    return false;
+    return _ahrs->airspeed_sensor_enabled();
 }
 
 // return true if we should use the range finder sensor

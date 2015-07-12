@@ -364,6 +364,9 @@ private:
     // fuse true airspeed measurements
     void FuseAirspeed();
 
+    // fuse sythetic sideslip measurement of zero
+    void FuseSideslip();
+
     // zero specified range of rows in the state covariance matrix
     void zeroRows(Matrix24 &covMat, uint8_t first, uint8_t last);
 
@@ -458,6 +461,9 @@ private:
 
     // determine when to perform fusion of true airspeed measurements
     void SelectTasFusion();
+
+    // determine when to perform fusion of synthetic sideslp measurements
+    void SelectBetaFusion();
 
     // force alignment of the yaw angle using GPS velocity data
     void alignYawGPS();
