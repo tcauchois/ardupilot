@@ -3384,7 +3384,7 @@ void NavEKF::SetFlightAndFusionModes()
     // inhibit the magnetic field calibration if not requested or denied
     inhibitMagStates = (!magCalRequested || magCalDenied);
 
-    if (inhibitMagStates) {
+    if (inhibitMagStates && inhibitWindStates) {
         stateIndexLim = 15;
     } else if (inhibitWindStates) {
         stateIndexLim = 21;
