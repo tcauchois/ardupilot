@@ -87,7 +87,7 @@ public:
     typedef ftype Vector23[23];
     typedef ftype Vector24[24];
     typedef ftype Vector25[25];
-    typedef ftype Vector31[31];
+    typedef ftype Vector28[28];
     typedef ftype Matrix3[3][3];
     typedef ftype Matrix24[24][24];
     typedef ftype Matrix34_50[34][50];
@@ -285,7 +285,7 @@ private:
     // the states are available in two forms, either as a Vector31, or
     // broken down as individual elements. Both are equivalent (same
     // memory)
-    Vector31 statesArray;
+    Vector28 statesArray;
     struct state_elements {
         Vector3f    angErr;         // 0..2
         Vector3f    velocity;       // 3..5
@@ -296,8 +296,7 @@ private:
         Vector3f    earth_magfield; // 16..18
         Vector3f    body_magfield;  // 19..21
         Vector2f    wind_vel;       // 22..23
-        Vector3f    omega;          // 24..26
-        Quaternion  quat;           // 27..30
+        Quaternion  quat;           // 24..27
     } &stateStruct;
 
     struct output_elements {
@@ -335,6 +334,12 @@ private:
     struct tas_elements {
         float       tas;         // 0
         uint32_t    time_ms;     // 1
+    };
+
+    struct of_elements {
+        Vector2f    flowRadXY;      // 0..1
+        Vector2f    flowRadXYcomp;  // 2..3
+        uint32_t    time_ms;        // 4
     };
 
     // update the quaternion, velocity and position states using IMU measurements
@@ -422,6 +427,13 @@ private:
     // return true if data found
     bool RecallTAS();
 
+    // store optical flow data
+    void StoreOF();
+
+    // recall optical flow data at the fusion time horizon
+    // return true if data found
+    bool RecallOF();
+
     // calculate nav to body quaternions from body to nav rotation matrix
     void quat2Tbn(Matrix3f &Tbn, const Quaternion &quat) const;
 
@@ -506,8 +518,14 @@ private:
     // return true if we should use the range finder sensor
     bool useRngFinder(void) const;
 
+    // determine when to perform fusion of optical flow measurements
+    void SelectFlowFusion();
+
     // Estimate terrain offset using a single state EKF
     void EstimateTerrainOffset();
+
+    // fuse optical flow measurements into the main filter
+    void FuseOptFlow();
 
     // Check arm status and perform required checks and mode changes
     void performArmingChecks();
@@ -641,7 +659,7 @@ private:
     bool badIMUdata;                // boolean true if the bad IMU data is detected
 
     float gpsNoiseScaler;           // Used to scale the  GPS measurement noise and consistency gates to compensate for operation with small satellite counts
-    Vector31 Kfusion;               // Kalman gain vector
+    Vector28 Kfusion;               // Kalman gain vector
     Matrix24 KH;                    // intermediate result used for covariance updates
     Matrix24 KHP;                   // intermediate result used for covariance updates
     Matrix24 P;                     // covariance matrix
@@ -649,7 +667,7 @@ private:
     gps_elements storedGPS[OBS_BUFFER_LENGTH];      // GPS data buffer
     mag_elements storedMag[OBS_BUFFER_LENGTH];      // Magnetometer data buffer
     baro_elements storedBaro[OBS_BUFFER_LENGTH];    // Baro data buffer
-    tas_elements storedTAS[OBS_BUFFER_LENGTH];    // TAS data buffer
+    tas_elements storedTAS[OBS_BUFFER_LENGTH];      // TAS data buffer
     output_elements storedOutput[IMU_BUFFER_LENGTH];// output state buffer
     Vector3f correctedDelAng;       // delta angles about the xyz body axes corrected for errors (rad)
     Quaternion correctedDelAngQuat; // quaternion representation of correctedDelAng
@@ -765,8 +783,8 @@ private:
     baro_elements baroDataNew;      // Baro data at the current time horizon
     baro_elements baroDataDelayed;  // Baro data at the fusion time horizon
     uint8_t baroStoreIndex;         // Baro data storage index
-    tas_elements tasDataNew;       // TAS data at the current time horizon
-    tas_elements tasDataDelayed;   // TAS data at the fusion time horizon
+    tas_elements tasDataNew;        // TAS data at the current time horizon
+    tas_elements tasDataDelayed;    // TAS data at the fusion time horizon
     uint8_t tasStoreIndex;          // TAS data storage index
     mag_elements magDataNew;        // Magnetometer data at the current time horizon
     mag_elements magDataDelayed;    // Magnetometer data at the fusion time horizon
@@ -783,6 +801,10 @@ private:
     uint32_t timeTasReceived_ms;    // tie last TAS data was received (msec)
 
     // variables added for optical flow fusion
+    of_elements storedOF[OBS_BUFFER_LENGTH];    // OF data buffer
+    of_elements ofDataNew;          // OF data at the current time horizon
+    of_elements ofDataDelayed;      // OF data at the fusion time horizon
+    uint8_t ofStoreIndex;           // OF data storage index
     bool newDataFlow;               // true when new optical flow data has arrived
     bool flowFusePerformed;         // true when optical flow fusion has been performed in that time step
     bool flowDataValid;             // true while optical flow data is still fresh
@@ -827,6 +849,8 @@ private:
     AidingMode PV_AidingMode;           // Defines the preferred mode for aiding of velocity and position estimates from the INS
     bool gndOffsetValid;            // true when the ground offset state can still be considered valid
     bool flowXfailed;               // true when the X optical flow measurement has failed the innovation consistency check
+    Vector3f delAngBodyOF;          // bias corrected delta angle of the vehicle IMU measured summed across the time since the last OF measurement
+    float delTimeOF;                // time that delAngBodyOF is summed across
 
     // Range finder
     float baroHgtOffset;            // offset applied when baro height used as a backup height reference if range-finder fails
@@ -847,24 +871,6 @@ private:
     bool expectGndEffectTouchdown;    // external state from ArduCopter - touchdown expected
     uint32_t touchdownExpectedSet_ms; // system time at which expectGndEffectTouchdown was set
     float meaHgtAtTakeOff;            // height measured at commencement of takeoff
-
-    // states held by optical flow fusion across time steps
-    // optical flow X,Y motion compensated rate measurements are fused across two time steps
-    // to level computational load as this can be an expensive operation
-    struct {
-        uint8_t obsIndex;
-        Vector4 SH_LOS;
-        Vector10 SK_LOS;
-        ftype q0;
-        ftype q1;
-        ftype q2;
-        ftype q3;
-        ftype vn;
-        ftype ve;
-        ftype vd;
-        ftype pd;
-        Vector2 losPred;
-    } flow_state;
 
     struct {
         bool bad_xmag:1;
