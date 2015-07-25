@@ -681,6 +681,7 @@ void NavEKF::SelectVelPosFusion()
                 decayGpsOffset();
                 ResetPosition();
                 ResetVelocity();
+                CovarianceInit();
                 // record the fail time
                 lastPosFailTime = imuSampleTime_ms;
                 // Reset the normalised innovation to avoid false failing the bad position fusion test
