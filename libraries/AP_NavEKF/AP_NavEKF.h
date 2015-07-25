@@ -799,6 +799,7 @@ private:
     Vector3f velCorrection;         // correction applied to velocities used by the output observer to track the EKF
     float innovYaw;                 // compass yaw angle innovation (rad)
     uint32_t timeTasReceived_ms;    // tie last TAS data was received (msec)
+    bool gpsQualGood;               // true when the GPS quality can be used to initialise the navigation system
 
     // variables added for optical flow fusion
     of_elements storedOF[OBS_BUFFER_LENGTH];    // OF data buffer

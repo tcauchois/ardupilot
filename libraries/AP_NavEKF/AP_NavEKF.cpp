@@ -380,7 +380,7 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
     msecTasDelay(240),              // Airspeed measurement delay (msec)
     gpsRetryTimeUseTAS(10000),      // GPS retry time with airspeed measurements (msec)
     gpsRetryTimeNoTAS(7000),        // GPS retry time without airspeed measurements (msec)
-    gpsFailTimeWithFlow(5000),      // If we have no GPS for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
+    gpsFailTimeWithFlow(1000),      // If we have no GPS for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
     hgtRetryTimeMode0(10000),       // Height retry time with vertical velocity measurement (msec)
     hgtRetryTimeMode12(5000),       // Height retry time without vertical velocity measurement (msec)
     tasRetryTime(5000),             // True airspeed timeout and retry interval (msec)
@@ -627,6 +627,9 @@ void NavEKF::UpdateFilter()
     // Update states using GPS and altimeter data
     SelectVelPosFusion();
 
+    // Update states using optical flow data
+    SelectFlowFusion();
+
     // Check for tilt convergence
     float alpha = 1.0f*dtIMUavg;
     float temp=tiltErrVec.length();
@@ -668,12 +671,11 @@ void NavEKF::SelectVelPosFusion()
     // check for and read new GPS data
     readGpsData();
 
-         if (RecallGPS()) {
-            // use both if GPS use is enabled
+         if (RecallGPS() && PV_AidingMode != AID_RELATIVE) {
             fuseVelData = true;
             fusePosData = true;
             // If a long time since last GPS update, then reset position and velocity and reset stored state history
-            if (imuSampleTime_ms - secondLastGpsTime_ms > 5000) {
+            if ((imuSampleTime_ms - secondLastGpsTime_ms > 5000) && (PV_AidingMode == AID_ABSOLUTE)) {
                 // Apply an offset to the GPS position so that the position can be corrected gradually
                 gpsPosGlitchOffsetNE.x = stateStruct.position.x - gpsDataDelayed.pos.x;
                 gpsPosGlitchOffsetNE.y = stateStruct.position.y - gpsDataDelayed.pos.y;
@@ -864,11 +866,8 @@ void NavEKF::SelectFlowFusion()
         newDataRng = false;
     }
 
-    // Fuse optical flow data into the main filter
-    // if the filter is initialised, we have data to fuse and the vehicle is not excessively tilted, then perform optical flow fusion
-    // we don't do fusion of optical flow data into the main filter if GPS is good and terrain offset data is invalid
-    // because an invalid height above ground estimate will cause the optical flow measurements to fight the GPS
-    if (newDataFlow && tiltOK && !constPosMode &&  (gpsNotAvailable || gndOffsetValid))
+    // Fuse optical flow data into the main filter if not excessively tilted and we are in the correct mode
+    if (newDataFlow && tiltOK && PV_AidingMode == AID_RELATIVE)
     {
         // Set the flow noise used by the fusion processes
         R_LOS = sq(max(_flowNoise, 0.05f));
@@ -4093,7 +4092,6 @@ void NavEKF::readIMUData()
 // check for new valid GPS data and update stored measurement if available
 void NavEKF::readGpsData()
 {
-    bool goodToAlign = false;
     // check for new GPS data
     if ((_ahrs->get_gps().last_message_time_ms() != lastTimeGpsReceived_ms) &&
             (_ahrs->get_gps().status() >= AP_GPS::GPS_OK_FIX_3D))
@@ -4139,14 +4137,14 @@ void NavEKF::readGpsData()
         }
 
         // Monitor quality of the GPS velocity data for alignment
-        goodToAlign = calcGpsGoodToAlign();
+        gpsQualGood = calcGpsGoodToAlign();
 
         // read latitutde and longitude from GPS and convert to local NE position relative to the stored origin
         // If we don't have an origin, then set it to the current GPS coordinates
         const struct Location &gpsloc = _ahrs->get_gps().location();
         if (validOrigin) {
             gpsDataNew.pos = location_diff(EKF_origin, gpsloc);
-        } else if (goodToAlign){
+        } else if (gpsQualGood){
             // Set the NE origin to the current GPS position
             setOrigin();
             // Now we know the location we have an estimate for the magnetic field declination and adjust the earth field accordingly
@@ -4171,10 +4169,13 @@ void NavEKF::readGpsData()
 
         // save measurement to buffer to be fused later
         StoreGPS();
+
+        // declare GPS available for use
+        gpsNotAvailable = false;
     }
 
-    // If not aiding and synthesise the measurements
-    if (PV_AidingMode == AID_NONE && (_ahrs->get_gps().status() < AP_GPS::GPS_OK_FIX_3D)) {
+    // If not aiding we synthesise the GPS measurements at a zero position
+    if (PV_AidingMode == AID_NONE) {
         gpsNotAvailable = true;
         if (imuSampleTime_ms - gpsDataNew.time_ms > 200) {
             gpsDataNew.pos.zero();
@@ -4182,8 +4183,8 @@ void NavEKF::readGpsData()
             // save measurement to buffer to be fused later
             StoreGPS();
         }
-    } else {
-        gpsNotAvailable = false;
+    } else if (PV_AidingMode == AID_RELATIVE) {
+        gpsNotAvailable = true;
     }
 
 }
@@ -4627,6 +4628,7 @@ void NavEKF::InitialiseVariables()
     delAngCorrection.zero();
     delVelCorrection.zero();
     velCorrection.zero();
+    gpsQualGood = false;
 
 }
 
@@ -4646,7 +4648,7 @@ bool NavEKF::useRngFinder(void) const
 // return true if optical flow data is available
 bool NavEKF::optFlowDataPresent(void) const
 {
-    return false;
+    return (imuSampleTime_ms - flowMeaTime_ms < 200);
 }
 
 // return true if the filter to be ready to use gps
@@ -4893,7 +4895,7 @@ void NavEKF::performArmingChecks()
             // set the time at which we arm to assist with takeoff detection
             timeAtArming_ms =  imuSampleTime_ms;
         } else { // arming when GPS useage is allowed
-            if (gpsNotAvailable) {
+            if (!gpsQualGood) {
                 hal.console->printf("EKF cannot use aiding\n");
                 PV_AidingMode = AID_NONE; // we don't have have GPS data and will only be able to estimate orientation and height
                 posTimeout = true;
@@ -4917,16 +4919,10 @@ void NavEKF::performArmingChecks()
                 lastPosFailTime = 0;
             }
         }
-        if (filterArmed) {
-            // Reset filter position to GPS when transitioning into flight mode
-            // We need to do this becasue the vehicle may have moved since the EKF origin was set
-            ResetPosition();
-        } else {
-            // Reset all position and velocity states when transitioning out of flight mode
-            // We need to do this becasue we are going into a mode that assumes zero position and velocity
-            ResetVelocity();
-            ResetPosition();
-        }
+        // Reset all position, velocity and covariance
+        ResetVelocity();
+        ResetPosition();
+        CovarianceInit();
 
     } else if (filterArmed && !firstMagYawInit && (stateStruct.position.z  - posDownAtArming) < -1.5f && !assume_zero_sideslip()) {
         // Do the first in-air yaw and earth mag field initialisation when the vehicle has gained 1.5m of altitude after arming if it is a non-fly forward vehicle (vertical takeoff)
