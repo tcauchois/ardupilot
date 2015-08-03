@@ -2242,14 +2242,14 @@ void NavEKF::FuseVelPosNED()
                     Kfusion[i+27] = Kfusion[i+4]; // IMU2 velNED
                 }
                 // Don't update Z accel bias values for an acceleraometer we have hard switched away from
-                if (IMU1_weighting > 0.1f && IMU1_weighting < 0.9f) {
+                if ((IMU1_weighting >= 0.1f) && (IMU1_weighting <= 0.9f)) {
                     // both IMU's OK
                     Kfusion[22] = Kfusion[13];
                 } else if (IMU1_weighting < 0.1f) {
                     // IMU1 bad
                     Kfusion[22] = Kfusion[13];
                     Kfusion[13] = 0.0f;
-                } else if (IMU1_weighting > 0.9f) {
+                } else {
                     // IMU2 bad
                     Kfusion[22] = 0.0f;
                 }
@@ -4730,7 +4730,8 @@ void NavEKF::InitialiseVariables()
     yawRateFilt = 0.0f;
     yawResetAngle = 0.0f;
     yawResetAngleWaiting = false;
-    const AP_InertialSensor &ins = _ahrs->get_ins();
+    imuNoiseFiltState1 = 0.0f;
+    imuNoiseFiltState2 = 0.0f;
 }
 
 // return true if we should use the airspeed sensor
