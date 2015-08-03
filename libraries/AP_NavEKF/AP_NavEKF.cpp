@@ -2087,14 +2087,11 @@ void NavEKF::FuseVelPosNED()
             } else {
                 IMU1_weighting = 0.5f;
             }
-            // If the difference between IMU readings is greater than 1.7 m/s/s in length, then hard switch to the IMU with the lowest noise
-            // The maximum tilt error that can occur due to a 1.7 m/s/s error is 10 degrees
-            if (accelDiffLengthFilt > 1.7f) {
-                if (imuNoiseFiltState1 > imuNoiseFiltState2) {
-                    IMU1_weighting = 0.0f;
-                } else {
-                    IMU1_weighting = 1.0f;
-                }
+            // Over-ride using a hard switch using the IMU consistency and vibration monitoring checks
+            if (lastImuSwitchState == 1) {
+                IMU1_weighting = 1.0f;
+            } else if (lastImuSwitchState == 2) {
+                IMU1_weighting = 0.0f;
             }
             // apply an innovation consistency threshold test, but don't fail if bad IMU data
             // calculate the test ratio
@@ -4143,13 +4140,38 @@ void NavEKF::readIMUData()
         alpha = 1.0f - 5.0f*dtDelVel2;
         imuNoiseFiltState2 = max(ins.get_vibration_levels(1).length(), alpha*imuNoiseFiltState2);
 
-        // Check the length of the vector difference between the two IMU's
-        float accelDiffLength = (ins.get_accel(0) - ins.get_accel(1)).length();
-
-        // apply a LPF filter to the length with a 1.0 second time constant
-        // the filtered output is used by the inertial strapdown calculation to determine if there is an accelerometer error
+        // calculate the filtered difference between acceleration vectors from IMU1 and 2
+        // apply a LPF filter with a 1.0 second time constant
         alpha = constrain_float(0.5f*(dtDelVel1 + dtDelVel2),0.0f,1.0f);
-        accelDiffLengthFilt = alpha * accelDiffLength + (1.0f - alpha) * accelDiffLengthFilt;
+        accelDiffFilt = (ins.get_accel(0) - ins.get_accel(1)) * alpha + accelDiffFilt * (1.0f - alpha);
+        float accelDiffLength = accelDiffFilt.length();
+
+        // Check the difference for excessive error and use the IMU with less noise
+        // Apply hysteresis to prevent rapid switching
+        if (accelDiffLength > 1.8f || (accelDiffLength > 1.2f && lastImuSwitchState != 0)) {
+            if (lastImuSwitchState == 0) {
+                // no previous fail so switch to the IMU with least noise
+                if (imuNoiseFiltState1 < imuNoiseFiltState2) {
+                    lastImuSwitchState = 1;
+                } else {
+                    lastImuSwitchState = 2;
+                }
+            } else if (lastImuSwitchState == 1) {
+                // IMU1 previously failed so require 5 m/s/s less noise on IMU2 to switch across
+                if (imuNoiseFiltState1 - imuNoiseFiltState2 > 5.0f) {
+                    // IMU2 is significantly less noisy, so switch
+                    lastImuSwitchState = 2;
+                }
+            } else {
+                // IMU2 previously failed so require 5 m/s/s less noise on IMU1 to switch across
+                if (imuNoiseFiltState2 - imuNoiseFiltState1 > 5.0f) {
+                    // IMU1 is significantly less noisy, so switch
+                    lastImuSwitchState = 1;
+                }
+            }
+        } else {
+            lastImuSwitchState = 0;
+        }
 
     } else {
         // single accel mode - one of the first two accelerometers are unhealthy
@@ -4732,6 +4754,7 @@ void NavEKF::InitialiseVariables()
     yawResetAngleWaiting = false;
     imuNoiseFiltState1 = 0.0f;
     imuNoiseFiltState2 = 0.0f;
+    lastImuSwitchState = 0;
 }
 
 // return true if we should use the airspeed sensor
