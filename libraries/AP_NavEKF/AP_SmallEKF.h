@@ -140,6 +140,9 @@ private:
     uint32_t imuSampleTime_ms;
     float dtIMU;
 
+    Vector3f gimDelAngCorrected;
+    Vector3f gimDelAngPrev;
+
     // state prediction
     void predictStates();
 

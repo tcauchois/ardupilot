@@ -403,7 +403,11 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
     flowTimeDeltaAvg_ms(100),       // average interval between optical flow measurements (msec)
     flowIntervalMax_ms(100),        // maximum allowable time between flow fusion events
     gndEffectTimeout_ms(1000),      // time in msec that baro ground effect compensation will timeout after initiation
-    gndEffectBaroScaler(4.0f)      // scaler applied to the barometer observation variance when operating in ground effect
+    gndEffectBaroScaler(4.0f),      // scaler applied to the barometer observation variance when operating in ground effect
+
+    //variables
+    lastRngMeasTime_ms(0),          // time in msec that the last range measurement was taken
+    rngMeasIndex(0)                 // index into ringbuffer of current range measurement
 
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
     ,_perf_UpdateFilter(perf_alloc(PC_ELAPSED, "EKF_UpdateFilter")),
@@ -1879,8 +1883,8 @@ void NavEKF::FuseVelPosNED()
                 } else {
                     innovVelPos[obsIndex] = stateStruct.position[obsIndex-3] - observation[obsIndex];
                     if (obsIndex == 5) {
-                        static const float gndMaxBaroErr = 4.0f;
-                        static const float gndBaroInnovFloor = -0.5f;
+                        const float gndMaxBaroErr = 4.0f;
+                        const float gndBaroInnovFloor = -0.5f;
 
                         if(getTouchdownExpected()) {
                             // when a touchdown is expected, floor the barometer innovation at gndBaroInnovFloor
@@ -2747,7 +2751,7 @@ void NavEKF::FuseOptFlow()
             H_LOS[0] = SH_LOS[3]*SH_LOS[2]*SH_LOS[6]-SH_LOS[3]*SH_LOS[0]*SH_LOS[4];
             H_LOS[1] = SH_LOS[3]*SH_LOS[2]*SH_LOS[5];
             H_LOS[2] = SH_LOS[3]*SH_LOS[0]*SH_LOS[1];
-            H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]-q1*q2*2.0);
+            H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]-q1*q2*2.0f);
             H_LOS[4] = -SH_LOS[3]*SH_LOS[0]*(SH_LOS[7]-SH_LOS[8]+SH_LOS[9]-SH_LOS[10]);
             H_LOS[5] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[6];
             H_LOS[8] = SH_LOS[2]*SH_LOS[0]*SH_LOS[13];
@@ -2899,7 +2903,7 @@ void NavEKF::FuseOptFlow()
             H_LOS[1] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[4]-SH_LOS[3]*SH_LOS[1]*SH_LOS[5];
             H_LOS[2] = SH_LOS[3]*SH_LOS[2]*SH_LOS[0];
             H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[7]+SH_LOS[8]-SH_LOS[9]-SH_LOS[10]);
-            H_LOS[4] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]+q1*q2*2.0);
+            H_LOS[4] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]+q1*q2*2.0f);
             H_LOS[5] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[5];
             H_LOS[8] = -SH_LOS[0]*SH_LOS[1]*SH_LOS[13];
 
@@ -4220,8 +4224,8 @@ void NavEKF::readHgtData()
         // filtered baro data used to provide a reference for takeoff
         // it is is reset to last height measurement on disarming in performArmingChecks()
         if (!getTakeoffExpected()) {
-            static const float gndHgtFiltTC = 0.5f;
-            static const float dtBaro = msecHgtAvg*1.0e-3f;
+            const float gndHgtFiltTC = 0.5f;
+            const float dtBaro = msecHgtAvg*1.0e-3f;
             float alpha = constrain_float(dtBaro / (dtBaro+gndHgtFiltTC),0.0f,1.0f);
             meaHgtAtTakeOff += (baroDataDelayed.hgt-meaHgtAtTakeOff)*alpha;
         } else if (filterArmed && getTakeoffExpected()) {
@@ -5072,10 +5076,6 @@ bool NavEKF::calcGpsGoodToAlign(void)
 // Read at 20Hz and apply a median filter
 void NavEKF::readRangeFinder(void)
 {
-    static float storedRngMeas[3];
-    static uint32_t storedRngMeasTime_ms[3];
-    static uint32_t lastRngMeasTime_ms = 0;
-    static uint8_t rngMeasIndex = 0;
     uint8_t midIndex;
     uint8_t maxIndex;
     uint8_t minIndex;

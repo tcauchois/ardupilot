@@ -634,9 +634,9 @@ private:
     const uint8_t flowTimeDeltaAvg_ms;  // average interval between optical flow measurements (msec)
     const uint32_t flowIntervalMax_ms;  // maximum allowable time between flow fusion events
 
-#define IMU_BUFFER_LENGTH 100           // number of IMU samples stored in the buffer. Samples*delta_time must be > max sensor delay
-#define OBS_BUFFER_LENGTH 5             // number of non-IMU sensor samples stored in the buffer.
-
+    // measurement buffer sizes
+    static const uint32_t IMU_BUFFER_LENGTH = 100;  // number of IMU samples stored in the buffer. Samples*delta_time must be > max sensor delay
+    static const uint32_t OBS_BUFFER_LENGTH = 5;    // number of non-IMU sensor samples stored in the buffer.
 
     // ground effect tuning parameters
     const uint16_t gndEffectTimeout_ms;      // time in msec that ground effect mode is active after being activated
@@ -856,6 +856,10 @@ private:
     // Range finder
     float baroHgtOffset;            // offset applied when baro height used as a backup height reference if range-finder fails
     float rngOnGnd;                 // Expected range finder reading in metres when vehicle is on ground
+    float storedRngMeas[3];             // Ringbuffer of stored range measurements
+    uint32_t storedRngMeasTime_ms[3];   // Ringbuffer of stored range measurement times
+    uint32_t lastRngMeasTime_ms;        // Timestamp of last range measurement
+    uint8_t rngMeasIndex;               // Current range measurement ringbuffer index
 
     // Movement detector
     bool takeOffDetected;           // true when takeoff for optical flow navigation has been detected
