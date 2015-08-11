@@ -1013,7 +1013,7 @@ const AP_Param::Info Copter::var_info[] PROGMEM = {
 
     // @Group: EKF_
     // @Path: ../libraries/AP_NavEKF/AP_NavEKF.cpp
-    GOBJECTN(EKF, NavEKF, "EKF_", NavEKF),
+    GOBJECTN(EKF.tuning, NavEKF, "EKF_", NavEKF_Tuning),
 
     // @Group: MIS_
     // @Path: ../libraries/AP_Mission/AP_Mission.cpp

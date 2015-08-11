@@ -1192,7 +1192,7 @@ const AP_Param::Info Plane::var_info[] PROGMEM = {
 #if AP_AHRS_NAVEKF_AVAILABLE
     // @Group: EKF_
     // @Path: ../libraries/AP_NavEKF/AP_NavEKF.cpp
-    GOBJECTN(EKF, NavEKF, "EKF_", NavEKF),
+    GOBJECTN(EKF.tuning, NavEKF, "EKF_", NavEKF_Tuning),
 #endif
 
     AP_VAREND

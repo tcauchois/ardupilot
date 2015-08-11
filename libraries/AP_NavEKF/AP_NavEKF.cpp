@@ -11,85 +11,9 @@
 
 #include "AP_NavEKF.h"
 #include <AP_AHRS.h>
-#include <AP_Param.h>
 #include <AP_Vehicle.h>
 
 #include <stdio.h>
-
-/*
-  parameter defaults for different types of vehicle. The
-  APM_BUILD_DIRECTORY is taken from the main vehicle directory name
-  where the code is built. Note that this trick won't work for arduino
-  builds on APM2, but NavEKF doesn't run on APM2, so that's OK
- */
-#if APM_BUILD_TYPE(APM_BUILD_ArduCopter)
-// copter defaults
-#define VELNE_NOISE_DEFAULT     0.5f
-#define VELD_NOISE_DEFAULT      0.7f
-#define POSNE_NOISE_DEFAULT     0.5f
-#define ALT_NOISE_DEFAULT       1.0f
-#define MAG_NOISE_DEFAULT       0.05f
-#define GYRO_PNOISE_DEFAULT     0.01f
-#define ACC_PNOISE_DEFAULT      0.25f
-#define GBIAS_PNOISE_DEFAULT    1E-05f
-#define ABIAS_PNOISE_DEFAULT    0.00005f
-#define MAG_PNOISE_DEFAULT     0.0003f
-#define VEL_GATE_DEFAULT        5
-#define POS_GATE_DEFAULT        5
-#define HGT_GATE_DEFAULT        10
-#define MAG_GATE_DEFAULT        3
-#define MAG_CAL_DEFAULT         3
-#define GLITCH_RADIUS_DEFAULT   25
-#define FLOW_MEAS_DELAY         10
-#define FLOW_NOISE_DEFAULT      0.25f
-#define FLOW_GATE_DEFAULT       3
-
-#elif APM_BUILD_TYPE(APM_BUILD_APMrover2)
-// rover defaults
-#define VELNE_NOISE_DEFAULT     0.5f
-#define VELD_NOISE_DEFAULT      0.7f
-#define POSNE_NOISE_DEFAULT     0.5f
-#define ALT_NOISE_DEFAULT       1.0f
-#define MAG_NOISE_DEFAULT       0.05f
-#define GYRO_PNOISE_DEFAULT     0.01f
-#define ACC_PNOISE_DEFAULT      0.25f
-#define GBIAS_PNOISE_DEFAULT    8E-06f
-#define ABIAS_PNOISE_DEFAULT    0.00005f
-#define MAG_PNOISE_DEFAULT     0.0003f
-#define VEL_GATE_DEFAULT        5
-#define POS_GATE_DEFAULT        5
-#define HGT_GATE_DEFAULT        10
-#define MAG_GATE_DEFAULT        3
-#define MAG_CAL_DEFAULT         2
-#define GLITCH_RADIUS_DEFAULT   25
-#define FLOW_MEAS_DELAY         25
-#define FLOW_NOISE_DEFAULT      0.15f
-#define FLOW_GATE_DEFAULT       5
-
-#else
-// generic defaults (and for plane)
-#define VELNE_NOISE_DEFAULT     0.5f
-#define VELD_NOISE_DEFAULT      0.7f
-#define POSNE_NOISE_DEFAULT     0.5f
-#define ALT_NOISE_DEFAULT       0.5f
-#define MAG_NOISE_DEFAULT       0.05f
-#define GYRO_PNOISE_DEFAULT     0.015f
-#define ACC_PNOISE_DEFAULT      0.5f
-#define GBIAS_PNOISE_DEFAULT    8E-06f
-#define ABIAS_PNOISE_DEFAULT    0.00005f
-#define MAG_PNOISE_DEFAULT     0.0003f
-#define VEL_GATE_DEFAULT        6
-#define POS_GATE_DEFAULT        30
-#define HGT_GATE_DEFAULT        20
-#define MAG_GATE_DEFAULT        3
-#define MAG_CAL_DEFAULT         0
-#define GLITCH_RADIUS_DEFAULT   25
-#define FLOW_MEAS_DELAY         25
-#define FLOW_NOISE_DEFAULT      0.3f
-#define FLOW_GATE_DEFAULT       3
-
-#endif // APM_BUILD_DIRECTORY
-
 
 extern const AP_HAL::HAL& hal;
 
@@ -102,308 +26,13 @@ extern const AP_HAL::HAL& hal;
 // initial imu bias uncertainty (deg/sec)
 #define INIT_ACCEL_BIAS_UNCERTAINTY 0.3f
 
-// Define tuning parameters
-const AP_Param::GroupInfo NavEKF::var_info[] PROGMEM = {
-
-    // @Param: VELNE_NOISE
-    // @DisplayName: GPS horizontal velocity measurement noise scaler
-    // @Description: This is the scaler that is applied to the speed accuracy reported by the receiver to estimate the horizontal velocity observation noise. If the model of receiver used does not provide a speed accurcy estimate, then a speed acuracy of 1 is assumed. Increasing it reduces the weighting on these measurements.
-    // @Range: 0.05 5.0
-    // @Increment: 0.05
-    // @User: Advanced
-    AP_GROUPINFO("VELNE_NOISE",    0, NavEKF, _gpsHorizVelNoise, VELNE_NOISE_DEFAULT),
-
-    // @Param: VELD_NOISE
-    // @DisplayName: GPS vertical velocity measurement noise scaler
-    // @Description: This is the scaler that is applied to the speed accuracy reported by the receiver to estimate the vertical velocity observation noise. If the model of receiver used does not provide a speed accurcy estimate, then a speed acuracy of 1 is assumed. Increasing it reduces the weighting on this measurement.
-    // @Range: 0.05 5.0
-    // @Increment: 0.05
-    // @User: Advanced
-    AP_GROUPINFO("VELD_NOISE",    1, NavEKF, _gpsVertVelNoise, VELD_NOISE_DEFAULT),
-
-    // @Param: POSNE_NOISE
-    // @DisplayName: GPS horizontal position measurement noise (m)
-    // @Description: This is the RMS value of noise in the GPS horizontal position measurements. Increasing it reduces the weighting on these measurements.
-    // @Range: 0.1 10.0
-    // @Increment: 0.1
-    // @User: Advanced
-    // @Units: meters
-    AP_GROUPINFO("POSNE_NOISE",    2, NavEKF, _gpsHorizPosNoise, POSNE_NOISE_DEFAULT),
-
-    // @Param: ALT_NOISE
-    // @DisplayName: Altitude measurement noise (m)
-    // @Description: This is the RMS value of noise in the altitude measurement. Increasing it reduces the weighting on this measurement.
-    // @Range: 0.1 10.0
-    // @Increment: 0.1
-    // @User: Advanced
-    // @Units: meters
-    AP_GROUPINFO("ALT_NOISE",    3, NavEKF, _baroAltNoise, ALT_NOISE_DEFAULT),
-
-    // @Param: MAG_NOISE
-    // @DisplayName: Magnetometer measurement noise (Gauss)
-    // @Description: This is the RMS value of noise in magnetometer measurements. Increasing it reduces the weighting on these measurements.
-    // @Range: 0.01 0.5
-    // @Increment: 0.01
-    // @User: Advanced
-    AP_GROUPINFO("MAG_NOISE",    4, NavEKF, _magNoise, MAG_NOISE_DEFAULT),
-
-    // @Param: EAS_NOISE
-    // @DisplayName: Equivalent airspeed measurement noise (m/s)
-    // @Description: This is the RMS value of noise in equivalent airspeed measurements. Increasing it reduces the weighting on these measurements.
-    // @Range: 0.5 5.0
-    // @Increment: 0.1
-    // @User: Advanced
-    // @Units: m/s
-    AP_GROUPINFO("EAS_NOISE",    5, NavEKF, _easNoise, 1.4f),
-
-    // @Param: WIND_PNOISE
-    // @DisplayName: Wind velocity process noise (m/s^2)
-    // @Description: This noise controls the growth of wind state error estimates. Increasing it makes wind estimation faster and noisier.
-    // @Range: 0.01 1.0
-    // @Increment: 0.1
-    // @User: Advanced
-    AP_GROUPINFO("WIND_PNOISE",    6, NavEKF, _windVelProcessNoise, 0.1f),
-
-    // @Param: WIND_PSCALE
-    // @DisplayName: Height rate to wind procss noise scaler
-    // @Description: Increasing this parameter increases how rapidly the wind states adapt when changing altitude, but does make wind speed estimation noiser.
-    // @Range: 0.0 1.0
-    // @Increment: 0.1
-    // @User: Advanced
-    AP_GROUPINFO("WIND_PSCALE",    7, NavEKF, _wndVarHgtRateScale, 0.5f),
-
-    // @Param: GYRO_PNOISE
-    // @DisplayName: Rate gyro noise (rad/s)
-    // @Description: This noise controls the growth of estimated error due to gyro measurement errors excluding bias. Increasing it makes the flter trust the gyro measurements less and other measurements more.
-    // @Range: 0.001 0.05
-    // @Increment: 0.001
-    // @User: Advanced
-    // @Units: rad/s
-    AP_GROUPINFO("GYRO_PNOISE",    8, NavEKF, _gyrNoise, GYRO_PNOISE_DEFAULT),
-
-    // @Param: ACC_PNOISE
-    // @DisplayName: Accelerometer noise (m/s^2)
-    // @Description: This noise controls the growth of estimated error due to accelerometer measurement errors excluding bias. Increasing it makes the flter trust the accelerometer measurements less and other measurements more.
-    // @Range: 0.05 1.0
-    // @Increment: 0.01
-    // @User: Advanced
-    // @Units: m/s/s
-    AP_GROUPINFO("ACC_PNOISE",    9, NavEKF, _accNoise, ACC_PNOISE_DEFAULT),
-
-    // @Param: GBIAS_PNOISE
-    // @DisplayName: Rate gyro bias process noise (rad/s)
-    // @Description: This noise controls the growth of gyro bias state error estimates. Increasing it makes rate gyro bias estimation faster and noisier.
-    // @Range: 0.0000001 0.00001
-    // @User: Advanced
-    // @Units: rad/s
-    AP_GROUPINFO("GBIAS_PNOISE",    10, NavEKF, _gyroBiasProcessNoise, GBIAS_PNOISE_DEFAULT),
-
-    // @Param: ABIAS_PNOISE
-    // @DisplayName: Accelerometer bias process noise (m/s^2)
-    // @Description: This noise controls the growth of the vertical acelerometer bias state error estimate. Increasing it makes accelerometer bias estimation faster and noisier.
-    // @Range: 0.00001 0.001
-    // @User: Advanced
-    // @Units: m/s/s
-    AP_GROUPINFO("ABIAS_PNOISE",    11, NavEKF, _accelBiasProcessNoise, ABIAS_PNOISE_DEFAULT),
-
-    // @Param: MAG_PNOISE
-    // @DisplayName: Magnetic field process noise (gauss/s)
-    // @Description: This noise controls the growth of magnetic field state error estimates. Increasing it makes magnetic field bias estimation faster and noisier.
-    // @Range: 0.0001 0.01
-    // @User: Advanced
-    // @Units: gauss/s
-    AP_GROUPINFO("MAG_PNOISE",    12, NavEKF, _magProcessNoise, MAG_PNOISE_DEFAULT),
-
-    // @Param: GSCL_PNOISE
-    // @DisplayName: Rate gyro scale factor process noise (1/s)
-    // @Description: This noise controls the rate of gyro scale factor learning. Increasing it makes rate gyro scale factor estimation faster and noisier.
-    // @Range: 0.0000001 0.00001
-    // @User: Advanced
-    // @Units: 1/s
-   AP_GROUPINFO("GSCL_PNOISE",    13, NavEKF, _gyroScaleProcessNoise, 1e-6f),
-
-    // @Param: GPS_DELAY
-    // @DisplayName: GPS measurement delay (msec)
-    // @Description: This is the number of msec that the GPS measurements lag behind the inertial measurements.
-    // @Range: 0 500
-    // @Increment: 10
-    // @User: Advanced
-    // @Units: milliseconds
-    AP_GROUPINFO("VEL_DELAY",    14, NavEKF, _msecGpsDelay, 220),
-
-    // this slot has been deprecated and reserved for later use
-
-    // @Param: GPS_TYPE
-    // @DisplayName: GPS mode control
-    // @Description: This parameter controls use of GPS measurements : 0 = use 3D velocity & 2D position, 1 = use 2D velocity and 2D position, 2 = use 2D position, 3 = use no GPS (optical flow will be used if available)
-    // @Values: 0:GPS 3D Vel and 2D Pos, 1:GPS 2D vel and 2D pos, 2:GPS 2D pos, 3:No GPS use optical flow
-    // @User: Advanced
-    AP_GROUPINFO("GPS_TYPE",    16, NavEKF, _fusionModeGPS, 0),
-
-    // @Param: VEL_GATE
-    // @DisplayName: GPS velocity measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the GPS velocity measurement innovation consistency check. Decreasing it makes it more likely that good measurements willbe rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("VEL_GATE",    17, NavEKF, _gpsVelInnovGate, VEL_GATE_DEFAULT),
-
-    // @Param: POS_GATE
-    // @DisplayName: GPS position measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the GPS position measurement innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("POS_GATE",    18, NavEKF, _gpsPosInnovGate, POS_GATE_DEFAULT),
-
-    // @Param: HGT_GATE
-    // @DisplayName: Height measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the height measurement innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("HGT_GATE",    19, NavEKF, _hgtInnovGate, HGT_GATE_DEFAULT),
-
-    // @Param: MAG_GATE
-    // @DisplayName: Magnetometer measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the magnetometer measurement innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("MAG_GATE",    20, NavEKF, _magInnovGate, MAG_GATE_DEFAULT),
-
-    // @Param: EAS_GATE
-    // @DisplayName: Airspeed measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the airspeed measurement innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("EAS_GATE",    21, NavEKF, _tasInnovGate, 10),
-
-    // @Param: MAG_CAL
-    // @DisplayName: Magnetometer calibration mode
-    // @Description: EKF_MAG_CAL = 0 enables calibration based on flying speed and altitude and is the default setting for Plane users. EKF_MAG_CAL = 1 enables calibration based on manoeuvre level and is the default setting for Copter and Rover users. EKF_MAG_CAL = 2 prevents magnetometer calibration regardless of flight condition and is recommended if in-flight magnetometer calibration is unreliable.
-    // @Values: 0:Speed and Height,1:Acceleration,2:Never,3:Always
-    // @User: Advanced
-    AP_GROUPINFO("MAG_CAL",    22, NavEKF, _magCal, MAG_CAL_DEFAULT),
-
-    // this slot has been deprecated and reserved for later use
-
-    // @Param: GLITCH_RAD
-    // @DisplayName: GPS glitch radius gate size (m)
-    // @Description: This parameter controls the maximum amount of difference in horizontal position (in m) between the value predicted by the filter and the value measured by the GPS before the long term glitch protection logic is activated and an offset is applied to the GPS measurement to compensate. Position steps smaller than this value will be temporarily ignored, but will then be accepted and the filter will move to the new position. Position steps larger than this value will be ignored initially, but the filter will then apply an offset to the GPS position measurement.
-    // @Range: 10 50
-    // @Increment: 5
-    // @User: Advanced
-    // @Units: meters
-    AP_GROUPINFO("GLITCH_RAD",    24, NavEKF, _gpsGlitchRadiusMax, GLITCH_RADIUS_DEFAULT),
-
-    // @Param: GND_GRADIENT
-    // @DisplayName: Terrain Gradient % RMS
-    // @Description: This parameter sets the RMS terrain gradient percentage assumed by the terrain height estimation. Terrain height can be estimated using optical flow and/or range finder sensor data if fitted. Smaller values cause the terrain height estimate to be slower to respond to changes in measurement. Larger values casue the terrain height estimate to be faster to respond, but also more noisy. Generally this value can be reduced if operating over very flat terrain and increased if operating over uneven terrain.
-    // @Range: 1 - 50
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("GND_GRADIENT",    25, NavEKF, _gndGradientSigma, 2),
-
-    // @Param: FLOW_NOISE
-    // @DisplayName: Optical flow measurement noise (rad/s)
-    // @Description: This is the RMS value of noise and errors in optical flow measurements. Increasing it reduces the weighting on these measurements.
-    // @Range: 0.05 - 1.0
-    // @Increment: 0.05
-    // @User: Advanced
-    // @Units: rad/s
-    AP_GROUPINFO("FLOW_NOISE",    26, NavEKF, _flowNoise, FLOW_NOISE_DEFAULT),
-
-    // @Param: FLOW_GATE
-    // @DisplayName: Optical Flow measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the optical flow innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 - 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("FLOW_GATE",    27, NavEKF, _flowInnovGate, FLOW_GATE_DEFAULT),
-
-    // @Param: FLOW_DELAY
-    // @DisplayName: Optical Flow measurement delay (msec)
-    // @Description: This is the number of msec that the optical flow measurements lag behind the inertial measurements. It is the time from the end of the optical flow averaging period and does not include the time delay due to the 100msec of averaging within the flow sensor.
-    // @Range: 0 - 500
-    // @Increment: 10
-    // @User: Advanced
-    // @Units: milliseconds
-    AP_GROUPINFO("FLOW_DELAY",    28, NavEKF, _msecFLowDelay, FLOW_MEAS_DELAY),
-
-    // @Param: RNG_GATE
-    // @DisplayName: Range finder measurement gate size
-    // @Description: This parameter sets the number of standard deviations applied to the range finder innovation consistency check. Decreasing it makes it more likely that good measurements will be rejected. Increasing it makes it more likely that bad measurements will be accepted.
-    // @Range: 1 - 100
-    // @Increment: 1
-    // @User: Advanced
-    AP_GROUPINFO("RNG_GATE",    29, NavEKF, _rngInnovGate, 5),
-
-    // @Param: MAX_FLOW
-    // @DisplayName: Maximum valid optical flow rate
-    // @Description: This parameter sets the magnitude maximum optical flow rate in rad/sec that will be accepted by the filter
-    // @Range: 1.0 - 4.0
-    // @Increment: 0.1
-    // @User: Advanced
-    AP_GROUPINFO("MAX_FLOW",    30, NavEKF, _maxFlowRate, 2.5f),
-
-    // @Param: FALLBACK
-    // @DisplayName: Fallback strictness
-    // @Description: This parameter controls the conditions necessary to trigger a fallback to DCM and INAV. A value of 1 will cause fallbacks to occur on loss of GPS and other conditions. A value of 0 will trust the EKF more.
-    // @Values: 0:Trust EKF more, 1:Trust DCM more
-    // @User: Advanced
-    AP_GROUPINFO("FALLBACK",    31, NavEKF, _fallback, 1),
-
-    // @Param: ALT_SOURCE
-    // @DisplayName: Primary height source
-    // @Description: This parameter controls which height sensor is used by the EKF during optical flow navigation (when EKF_GPS_TYPE = 3). A value of will 0 cause it to always use baro altitude. A value of 1 will casue it to use range finder if available.
-    // @Values: 0:Use Baro, 1:Use Range Finder
-    // @User: Advanced
-    AP_GROUPINFO("ALT_SOURCE",    32, NavEKF, _altSource, 1),
-
-
-    AP_GROUPEND
-};
-
 // constructor
 NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
+    tuning(NavEKF_Tuning::getInstance()),
     _ahrs(ahrs),
     _baro(baro),
     _rng(rng),
     stateStruct(*reinterpret_cast<struct state_elements *>(&statesArray)),
-    gpsNEVelVarAccScale(0.05f),     // Scale factor applied to horizontal velocity measurement variance due to manoeuvre acceleration - used when GPS doesn't report speed error
-    gpsDVelVarAccScale(0.07f),      // Scale factor applied to vertical velocity measurement variance due to manoeuvre acceleration - used when GPS doesn't report speed error
-    gpsPosVarAccScale(0.05f),       // Scale factor applied to horizontal position measurement variance due to manoeuvre acceleration
-    msecHgtDelay(60),               // Height measurement delay (msec)
-    msecMagDelay(60),               // Magnetometer measurement delay (msec)
-    msecTasDelay(240),              // Airspeed measurement delay (msec)
-    gpsRetryTimeUseTAS(10000),      // GPS retry time with airspeed measurements (msec)
-    gpsRetryTimeNoTAS(7000),        // GPS retry time without airspeed measurements (msec)
-    gpsFailTimeWithFlow(1000),      // If we have no GPS for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
-    hgtRetryTimeMode0(10000),       // Height retry time with vertical velocity measurement (msec)
-    hgtRetryTimeMode12(5000),       // Height retry time without vertical velocity measurement (msec)
-    tasRetryTime(5000),             // True airspeed timeout and retry interval (msec)
-    magFailTimeLimit_ms(10000),     // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
-    magVarRateScale(0.05f),         // scale factor applied to magnetometer variance due to angular rate
-    gyroBiasNoiseScaler(2.0f),      // scale factor applied to imu gyro bias learning before the vehicle is armed
-    accelBiasNoiseScaler(1.0f),     // scale factor applied to imu accel bias learning before the vehicle is armed
-    msecGpsAvg(200),                // average number of msec between GPS measurements
-    msecHgtAvg(100),                // average number of msec between height measurements
-    msecMagAvg(100),                // average number of msec between magnetometer measurements
-    msecBetaAvg(100),               // average number of msec between synthetic sideslip measurements
-    msecBetaMax(200),               // maximum number of msec between synthetic sideslip measurements
-    msecFlowAvg(100),               // average number of msec between optical flow measurements
-    dtVelPos(0.2f),                 // number of seconds between position and velocity corrections. This should be a multiple of the imu update interval.
-    covTimeStepMax(0.07f),          // maximum time (sec) between covariance prediction updates
-    covDelAngMax(0.05f),            // maximum delta angle between covariance prediction updates
-    TASmsecMax(200),                // maximum allowed interval between airspeed measurement updates
-    DCM33FlowMin(0.71f),            // If Tbn(3,3) is less than this number, optical flow measurements will not be fused as tilt is too high.
-    fScaleFactorPnoise(1e-10f),     // Process noise added to focal length scale factor state variance at each time step
-    flowTimeDeltaAvg_ms(100),       // average interval between optical flow measurements (msec)
-    flowIntervalMax_ms(100),        // maximum allowable time between flow fusion events
-    gndEffectTimeout_ms(1000),      // time in msec that baro ground effect compensation will timeout after initiation
-    gndEffectBaroScaler(4.0f),      // scaler applied to the barometer observation variance when operating in ground effect
 
     //variables
     lastRngMeasTime_ms(0),          // time in msec that the last range measurement was taken
@@ -418,8 +47,6 @@ NavEKF::NavEKF(const AP_AHRS *ahrs, AP_Baro &baro, const RangeFinder &rng) :
     _perf_FuseSideslip(perf_alloc(PC_ELAPSED, "EKF_FuseSideslip"))
 #endif
 {
-    AP_Param::setup_object_defaults(this, var_info);
-
 }
 
 // Check basic filter health metrics and return a consolidated health status
@@ -430,7 +57,7 @@ bool NavEKF::healthy(void) const
     if (faultInt > 0) {
         return false;
     }
-    if (_fallback && velTestRatio > 1 && posTestRatio > 1 && hgtTestRatio > 1) {
+    if (tuning._fallback && velTestRatio > 1 && posTestRatio > 1 && hgtTestRatio > 1) {
         // all three metrics being above 1 means the filter is
         // extremely unhealthy.
         return false;
@@ -619,7 +246,7 @@ void NavEKF::UpdateFilter()
 
     // perform a covariance prediction if the total delta angle has exceeded the limit
     // or the time limit will be exceeded at the next IMU update
-    if (((dt >= (covTimeStepMax - dtIMUavg)) || (summedDelAng.length() > covDelAngMax))) {
+    if (((dt >= (tuning.covTimeStepMax - dtIMUavg)) || (summedDelAng.length() > tuning.covDelAngMax))) {
         CovariancePrediction();
     } else {
         covPredStep = false;
@@ -703,7 +330,7 @@ void NavEKF::SelectVelPosFusion()
 
     // If we haven't received height data for a while, then declare the height data as being timed out
     // set timeout period based on whether we have vertical GPS velocity available to constrain drift
-    hgtRetryTime = (useGpsVertVel && !velTimeout) ? hgtRetryTimeMode0 : hgtRetryTimeMode12;
+    hgtRetryTime = (useGpsVertVel && !velTimeout) ? tuning.hgtRetryTimeMode0 : tuning.hgtRetryTimeMode12;
     if (imuSampleTime_ms - lastHgtReceived_ms > hgtRetryTime) {
         hgtTimeout = true;
     }
@@ -727,9 +354,9 @@ void NavEKF::SelectVelPosFusion()
     // of GPS and severe loss of position accuracy.
     uint32_t gpsRetryTime;
     if (useAirspeed()) {
-        gpsRetryTime = gpsRetryTimeUseTAS;
+        gpsRetryTime = tuning.gpsRetryTimeUseTAS;
     } else {
-        gpsRetryTime = gpsRetryTimeNoTAS;
+        gpsRetryTime = tuning.gpsRetryTimeNoTAS;
     }
     if ((posTestRatio > 2.0f) && ((imuSampleTime_ms - lastPosFailTime) < gpsRetryTime) && ((imuSampleTime_ms - lastPosFailTime) > gpsRetryTime/2) && fusePosData) {
         lastGpsAidBadTime_ms = imuSampleTime_ms;
@@ -751,7 +378,7 @@ void NavEKF::SelectMagFusion()
     if (magHealth) {
         magTimeout = false;
         lastHealthyMagTime_ms = imuSampleTime_ms;
-    } else if ((imuSampleTime_ms - lastHealthyMagTime_ms) > magFailTimeLimit_ms && use_compass()) {
+    } else if ((imuSampleTime_ms - lastHealthyMagTime_ms) > tuning.magFailTimeLimit_ms && use_compass()) {
         magTimeout = true;
     }
 
@@ -785,7 +412,7 @@ void NavEKF::SelectTasFusion()
     readAirSpdData();
 
     // If we haven't received airspeed data for a while, then declare the airspeed data as being timed out
-    if (imuSampleTime_ms - tasDataNew.time_ms > tasRetryTime) {
+    if (imuSampleTime_ms - tasDataNew.time_ms > tuning.tasRetryTime) {
         tasTimeout = true;
     }
 
@@ -808,9 +435,9 @@ void NavEKF::SelectTasFusion()
 void NavEKF::SelectBetaFusion()
 {
     // set true when the fusion time interval has triggered
-    bool f_timeTrigger = ((imuSampleTime_ms - BETAmsecPrev) >= msecBetaAvg);
+    bool f_timeTrigger = ((imuSampleTime_ms - BETAmsecPrev) >= tuning.msecBetaAvg);
     // set true when use of synthetic sideslip fusion is necessary because we have limited sensor data or are dead reckoning position
-    bool f_required = !(use_compass() && useAirspeed() && ((imuSampleTime_ms - lastPosPassTime) < gpsRetryTimeNoTAS));
+    bool f_required = !(use_compass() && useAirspeed() && ((imuSampleTime_ms - lastPosPassTime) < tuning.gpsRetryTimeNoTAS));
     // set true when sideslip fusion is feasible (requires zero sideslip assumption to be valid and use of wind states)
     bool f_feasible = (assume_zero_sideslip() && !inhibitWindStates);
     // use synthetic sideslip fusion if feasible, required and enough time has lapsed since the last fusion
@@ -837,9 +464,9 @@ void NavEKF::SelectFlowFusion()
     // check is the terrain offset estimate is still valid
     gndOffsetValid = ((imuSampleTime_ms - gndHgtValidTime_ms) < 5000);
     // Perform tilt check
-    bool tiltOK = (Tnb_flow.c.z > DCM33FlowMin);
+    bool tiltOK = (Tnb_flow.c.z > tuning.DCM33FlowMin);
     // Constrain measurements to zero if we are using optical flow and are on the ground
-    if (_fusionModeGPS == 3 && !takeOffDetected && filterArmed) {
+    if (tuning._fusionModeGPS == 3 && !takeOffDetected && filterArmed) {
         ofDataDelayed.flowRadXYcomp.zero();
         ofDataDelayed.flowRadXY.zero();
         flowDataValid = true;
@@ -874,7 +501,7 @@ void NavEKF::SelectFlowFusion()
     if (newDataFlow && tiltOK && PV_AidingMode == AID_RELATIVE)
     {
         // Set the flow noise used by the fusion processes
-        R_LOS = sq(max(_flowNoise, 0.05f));
+        R_LOS = sq(max(tuning._flowNoise, 0.05f));
         // ensure that the covariance prediction is up to date before fusing data
         if (!covPredStep) CovariancePrediction();
         // Fuse the optical flow X and Y axis data into the main filter sequentially
@@ -1150,12 +777,12 @@ void NavEKF::CovariancePrediction()
 
     // use filtered height rate to increase wind process noise when climbing or descending
     // this allows for wind gradient effects.
-    windVelSigma  = dt * constrain_float(_windVelProcessNoise, 0.01f, 1.0f) * (1.0f + constrain_float(_wndVarHgtRateScale, 0.0f, 1.0f) * fabsf(hgtRate));
-    dAngBiasSigma = dt * constrain_float(_gyroBiasProcessNoise, 1e-8f, 1e-4f);
-    dVelBiasSigma = dt * constrain_float(_accelBiasProcessNoise, 1e-6f, 1e-2f);
-    dAngScaleSigma = dt * constrain_float(_gyroScaleProcessNoise,1e-8f,1e-5f);
-    magEarthSigma = dt * constrain_float(_magProcessNoise, 1e-4f, 1e-2f);
-    magBodySigma  = dt * constrain_float(_magProcessNoise, 1e-4f, 1e-2f);
+    windVelSigma  = dt * constrain_float(tuning._windVelProcessNoise, 0.01f, 1.0f) * (1.0f + constrain_float(tuning._wndVarHgtRateScale, 0.0f, 1.0f) * fabsf(hgtRate));
+    dAngBiasSigma = dt * constrain_float(tuning._gyroBiasProcessNoise, 1e-8f, 1e-4f);
+    dVelBiasSigma = dt * constrain_float(tuning._accelBiasProcessNoise, 1e-6f, 1e-2f);
+    dAngScaleSigma = dt * constrain_float(tuning._gyroScaleProcessNoise,1e-8f,1e-5f);
+    magEarthSigma = dt * constrain_float(tuning._magProcessNoise, 1e-4f, 1e-2f);
+    magBodySigma  = dt * constrain_float(tuning._magProcessNoise, 1e-4f, 1e-2f);
     for (uint8_t i= 0; i<=8;  i++) processNoise[i] = 1.0e-9f;
     for (uint8_t i=9; i<=11; i++) processNoise[i] = dAngBiasSigma;
     for (uint8_t i=10; i<=12; i++) processNoise[i] = dAngBiasSigma;
@@ -1163,7 +790,7 @@ void NavEKF::CovariancePrediction()
     if (expectGndEffectTakeoff) {
         processNoise[15] = 0.0f;
     } else if (!filterArmed) {
-        processNoise[15] = dVelBiasSigma * accelBiasNoiseScaler;
+        processNoise[15] = dVelBiasSigma * tuning.accelBiasNoiseScaler;
     } else {
         processNoise[15] = dVelBiasSigma;
     }
@@ -1191,12 +818,12 @@ void NavEKF::CovariancePrediction()
     day_s = stateStruct.gyro_scale.y;
     daz_s = stateStruct.gyro_scale.z;
     dvz_b = stateStruct.accel_zbias;
-    _gyrNoise = constrain_float(_gyrNoise, 1e-3f, 5e-2f);
+    float _gyrNoise = constrain_float(tuning._gyrNoise, 1e-3f, 5e-2f);
     daxNoise = dt*_gyrNoise;
     dayNoise = dt*_gyrNoise;
     // Account for 3% scale factor error on Z angular rate. This reduces chance of continuous fast rotations causing loss of yaw reference.
     dazNoise = dt*(pythagorous2(_gyrNoise,0.03f*yawRateFilt));
-    _accNoise = constrain_float(_accNoise, 5e-2f, 1.0f);
+    float _accNoise = constrain_float(tuning._accNoise, 5e-2f, 1.0f);
     dvxNoise = dt*_accNoise;
     dvyNoise = dt*_accNoise;
     dvzNoise = dt*_accNoise;
@@ -1665,8 +1292,8 @@ void NavEKF::FuseVelPosNED()
 
         // set the GPS data timeout depending on whether airspeed data is present
         uint32_t gpsRetryTime;
-        if (useAirspeed()) gpsRetryTime = gpsRetryTimeUseTAS;
-        else gpsRetryTime = gpsRetryTimeNoTAS;
+        if (useAirspeed()) gpsRetryTime = tuning.gpsRetryTimeUseTAS;
+        else gpsRetryTime = tuning.gpsRetryTimeNoTAS;
 
         // form the observation vector and zero velocity and horizontal position observations if in constant position mode
         // If in constant velocity mode, hold the last known horizontal velocity vector
@@ -1686,41 +1313,41 @@ void NavEKF::FuseVelPosNED()
         observation[5] = -baroDataDelayed.hgt;
 
         // calculate additional error in GPS position caused by manoeuvring
-        posErr = gpsPosVarAccScale * accNavMag;
+        posErr = tuning.gpsPosVarAccScale * accNavMag;
 
         // estimate the GPS Velocity, GPS horiz position and height measurement variances.
         // if the GPS is able to report a speed error, we use it to adjust the observation noise for GPS velocity
         // otherwise we scale it using manoeuvre acceleration
         if (gpsSpdAccuracy > 0.0f) {
             // use GPS receivers reported speed accuracy - floor at value set by gps noise parameter
-            R_OBS[0] = sq(constrain_float(gpsSpdAccuracy, _gpsHorizVelNoise, 50.0f));
-            R_OBS[2] = sq(constrain_float(gpsSpdAccuracy, _gpsVertVelNoise, 50.0f));
+            R_OBS[0] = sq(constrain_float(gpsSpdAccuracy, tuning._gpsHorizVelNoise, 50.0f));
+            R_OBS[2] = sq(constrain_float(gpsSpdAccuracy, tuning._gpsVertVelNoise, 50.0f));
         } else {
             // calculate additional error in GPS velocity caused by manoeuvring
-            R_OBS[0] = sq(constrain_float(_gpsHorizVelNoise, 0.05f, 5.0f)) + sq(gpsNEVelVarAccScale * accNavMag);
-            R_OBS[2] = sq(constrain_float(_gpsVertVelNoise,  0.05f, 5.0f)) + sq(gpsDVelVarAccScale  * accNavMag);
+            R_OBS[0] = sq(constrain_float(tuning._gpsHorizVelNoise, 0.05f, 5.0f)) + sq(tuning.gpsNEVelVarAccScale * accNavMag);
+            R_OBS[2] = sq(constrain_float(tuning._gpsVertVelNoise,  0.05f, 5.0f)) + sq(tuning.gpsDVelVarAccScale  * accNavMag);
         }
         R_OBS[1] = R_OBS[0];
-        R_OBS[3] = sq(constrain_float(_gpsHorizPosNoise, 0.1f, 10.0f)) + sq(posErr);
+        R_OBS[3] = sq(constrain_float(tuning._gpsHorizPosNoise, 0.1f, 10.0f)) + sq(posErr);
         R_OBS[4] = R_OBS[3];
-        R_OBS[5] = sq(constrain_float(_baroAltNoise, 0.1f, 10.0f));
+        R_OBS[5] = sq(constrain_float(tuning._baroAltNoise, 0.1f, 10.0f));
 
         // reduce weighting (increase observation noise) on baro if we are likely to be in ground effect
         if ((getTakeoffExpected() || getTouchdownExpected()) && filterArmed) {
-            R_OBS[5] *= gndEffectBaroScaler;
+            R_OBS[5] *= tuning.gndEffectBaroScaler;
         }
 
         // For data integrity checks we use the same measurement variances as used to calculate the Kalman gains for all measurements except GPS horizontal velocity
         // For horizontal GPs velocity we don't want the acceptance radius to increase with reported GPS accuracy so we use a value based on best GPs perfomrance
         // plus a margin for manoeuvres. It is better to reject GPS horizontal velocity errors early
-        for (uint8_t i=0; i<=1; i++) R_OBS_DATA_CHECKS[i] = sq(constrain_float(_gpsHorizVelNoise, 0.05f, 5.0f)) + sq(gpsNEVelVarAccScale * accNavMag);
+        for (uint8_t i=0; i<=1; i++) R_OBS_DATA_CHECKS[i] = sq(constrain_float(tuning._gpsHorizVelNoise, 0.05f, 5.0f)) + sq(tuning.gpsNEVelVarAccScale * accNavMag);
         for (uint8_t i=2; i<=5; i++) R_OBS_DATA_CHECKS[i] = R_OBS[i];
 
 
         // if vertical GPS velocity data is being used, check to see if the GPS vertical velocity and barometer
         // innovations have the same sign and are outside limits. If so, then it is likely aliasing is affecting
         // the accelerometers and we should disable the GPS and barometer innovation consistency checks.
-        if (useGpsVertVel && fuseVelData && (imuSampleTime_ms - lastHgtReceived_ms) <  (2 * msecHgtAvg)) {
+        if (useGpsVertVel && fuseVelData && (imuSampleTime_ms - lastHgtReceived_ms) <  (2 * tuning.msecHgtAvg)) {
             // calculate innovations for height and vertical GPS vel measurements
             float hgtErr  = stateStruct.position.z - observation[5];
             float velDErr = stateStruct.velocity.z - observation[2];
@@ -1741,7 +1368,7 @@ void NavEKF::FuseVelPosNED()
             varInnovVelPos[3] = P[6][6] + R_OBS_DATA_CHECKS[3];
             varInnovVelPos[4] = P[7][7] + R_OBS_DATA_CHECKS[4];
             // apply an innovation consistency threshold test, but don't fail if bad IMU data
-            float maxPosInnov2 = sq(_gpsPosInnovGate)*(varInnovVelPos[3] + varInnovVelPos[4]);
+            float maxPosInnov2 = sq(tuning._gpsPosInnovGate)*(varInnovVelPos[3] + varInnovVelPos[4]);
             posTestRatio = (sq(innovVelPos[3]) + sq(innovVelPos[4])) / maxPosInnov2;
             posHealth = ((posTestRatio < 1.0f) || badIMUdata);
             // declare a timeout condition if we have been too long without data or not aiding
@@ -1753,7 +1380,7 @@ void NavEKF::FuseVelPosNED()
                 if (PV_AidingMode == AID_ABSOLUTE) {
                     lastPosPassTime = imuSampleTime_ms;
                     // if timed out or outside the specified uncertainty radius, increment the offset applied to GPS data to compensate for large GPS position jumps
-                    if (posTimeout || ((varInnovVelPos[3] + varInnovVelPos[4]) > sq(float(_gpsGlitchRadiusMax)))) {
+                    if (posTimeout || ((varInnovVelPos[3] + varInnovVelPos[4]) > sq(float(tuning._gpsGlitchRadiusMax)))) {
                         gpsPosGlitchOffsetNE.x += innovVelPos[3];
                         gpsPosGlitchOffsetNE.y += innovVelPos[4];
                         // limit the radius of the offset and decay the offset to zero radially
@@ -1779,7 +1406,7 @@ void NavEKF::FuseVelPosNED()
         if (fuseVelData) {
             // test velocity measurements
             uint8_t imax = 2;
-            if (_fusionModeGPS == 1 || constVelMode) {
+            if (tuning._fusionModeGPS == 1 || constVelMode) {
                 imax = 1;
             }
             float innovVelSumSq = 0; // sum of squares of velocity innovations
@@ -1797,7 +1424,7 @@ void NavEKF::FuseVelPosNED()
             }
             // apply an innovation consistency threshold test, but don't fail if bad IMU data
             // calculate the test ratio
-            velTestRatio = innovVelSumSq / (varVelSum * sq(_gpsVelInnovGate));
+            velTestRatio = innovVelSumSq / (varVelSum * sq(tuning._gpsVelInnovGate));
             // fail if the ratio is greater than 1
             velHealth = ((velTestRatio < 1.0f)  || badIMUdata);
             // declare a timeout if we have not fused velocity data for too long or not aiding
@@ -1824,7 +1451,7 @@ void NavEKF::FuseVelPosNED()
 
             varInnovVelPos[5] = P[8][8] + R_OBS_DATA_CHECKS[5];
             // calculate the innovation consistency test ratio
-            hgtTestRatio = sq(innovVelPos[5]) / (sq(_hgtInnovGate) * varInnovVelPos[5]);
+            hgtTestRatio = sq(innovVelPos[5]) / (sq(tuning._hgtInnovGate) * varInnovVelPos[5]);
             // fail if the ratio is > 1, but don't fail if bad IMU data
             hgtHealth = ((hgtTestRatio < 1.0f) || badIMUdata);
             hgtTimeout = (imuSampleTime_ms - lastHgtPassTime) > hgtRetryTime;
@@ -2033,7 +1660,7 @@ void NavEKF::FuseMagnetometer()
         MagPred[2] = DCM[2][0]*magN + DCM[2][1]*magE  + DCM[2][2]*magD + magZbias;
 
         // scale magnetometer observation error with total angular rate
-        R_MAG = sq(constrain_float(_magNoise, 0.01f, 0.5f)) + sq(magVarRateScale*imuDataDelayed.delAng.length() / dtIMUavg);
+        R_MAG = sq(constrain_float(tuning._magNoise, 0.01f, 0.5f)) + sq(tuning.magVarRateScale*imuDataDelayed.delAng.length() / dtIMUavg);
 
         // calculate observation jacobians
         SH_MAG[0] = sq(q0) - sq(q1) + sq(q2) - sq(q3);
@@ -2261,7 +1888,7 @@ void NavEKF::FuseMagnetometer()
     // calculate the measurement innovation
     innovMag[obsIndex] = MagPred[obsIndex] - magDataDelayed.mag[obsIndex];
     // calculate the innovation test ratio
-    magTestRatio[obsIndex] = sq(innovMag[obsIndex]) / (sq(_magInnovGate) * varInnovMag[obsIndex]);
+    magTestRatio[obsIndex] = sq(innovMag[obsIndex]) / (sq(tuning._magInnovGate) * varInnovMag[obsIndex]);
     // check the last values from all components and set magnetometer health accordingly
     magHealth = (magTestRatio[0] < 1.0f && magTestRatio[1] < 1.0f && magTestRatio[2] < 1.0f);
     // Don't fuse unless all componenets pass. The exception is if the bad health has timed out and we are not a fly forward vehicle
@@ -2349,7 +1976,7 @@ void NavEKF::FuseAirspeed()
     float vwn;
     float vwe;
     float EAS2TAS = _ahrs->get_EAS2TAS();
-    const float R_TAS = sq(constrain_float(_easNoise, 0.5f, 5.0f) * constrain_float(EAS2TAS, 0.9f, 10.0f));
+    const float R_TAS = sq(constrain_float(tuning._easNoise, 0.5f, 5.0f) * constrain_float(EAS2TAS, 0.9f, 10.0f));
     Vector3 SH_TAS;
     float SK_TAS;
     Vector24 H_TAS;
@@ -2433,11 +2060,11 @@ void NavEKF::FuseAirspeed()
         innovVtas = VtasPred - tasDataDelayed.tas;
 
         // calculate the innovation consistency test ratio
-        tasTestRatio = sq(innovVtas) / (sq(_tasInnovGate) * varInnovVtas);
+        tasTestRatio = sq(innovVtas) / (sq(tuning._tasInnovGate) * varInnovVtas);
 
         // fail if the ratio is > 1, but don't fail if bad IMU data
         tasHealth = ((tasTestRatio < 1.0f) || badIMUdata);
-        tasTimeout = (imuSampleTime_ms - lastTasPassTime) > tasRetryTime;
+        tasTimeout = (imuSampleTime_ms - lastTasPassTime) > tuning.tasRetryTime;
 
         // test the ratio before fusing data, forcing fusion if airspeed and position are timed out as we have no choice but to try and use airspeed to constrain error growth
         if (tasHealth || (tasTimeout && posTimeout)) {
@@ -3050,10 +2677,10 @@ void NavEKF::FuseOptFlow()
         }
 
     // calculate the innovation consistency test ratio
-    flowTestRatio[obsIndex] = sq(innovOptFlow[obsIndex]) / (sq(_flowInnovGate) * varInnovOptFlow[obsIndex]);
+    flowTestRatio[obsIndex] = sq(innovOptFlow[obsIndex]) / (sq(tuning._flowInnovGate) * varInnovOptFlow[obsIndex]);
 
     // Check the innovation for consistency and don't fuse if out of bounds or flow is too fast to be reliable
-    if ((flowTestRatio[obsIndex]) < 1.0f && (ofDataDelayed.flowRadXY.x < _maxFlowRate) && (ofDataDelayed.flowRadXY.y < _maxFlowRate)) {
+    if ((flowTestRatio[obsIndex]) < 1.0f && (ofDataDelayed.flowRadXY.x < tuning._maxFlowRate) && (ofDataDelayed.flowRadXY.y < tuning._maxFlowRate)) {
         // record the last time observations were accepted for fusion
         prevFlowFuseTime_ms = imuSampleTime_ms;
 
@@ -3140,7 +2767,7 @@ void NavEKF::EstimateTerrainOffset()
 
         // in addition to a terrain gradient error model, we also have a time based error growth that is scaled using the gradient parameter
         float timeLapsed = min(0.001f * (imuSampleTime_ms - timeAtLastAuxEKF_ms), 1.0f);
-        float Pincrement = (distanceTravelledSq * sq(0.01f*float(_gndGradientSigma))) + sq(float(_gndGradientSigma) * timeLapsed);
+        float Pincrement = (distanceTravelledSq * sq(0.01f*float(tuning._gndGradientSigma))) + sq(float(tuning._gndGradientSigma) * timeLapsed);
         Popt += Pincrement;
         timeAtLastAuxEKF_ms = imuSampleTime_ms;
 
@@ -3172,7 +2799,7 @@ void NavEKF::EstimateTerrainOffset()
             innovRng = predRngMeas - rngMea;
 
             // calculate the innovation consistency test ratio
-            auxRngTestRatio = sq(innovRng) / (sq(_rngInnovGate) * varInnovRng);
+            auxRngTestRatio = sq(innovRng) / (sq(tuning._rngInnovGate) * varInnovRng);
 
             // Check the innovation for consistency and don't fuse if > 5Sigma
             if ((sq(innovRng)*SK_RNG) < 25.0f)
@@ -3266,10 +2893,10 @@ void NavEKF::EstimateTerrainOffset()
             K_OPT = Popt*H_OPT/auxFlowObsInnovVar;
 
             // calculate the innovation consistency test ratio
-            auxFlowTestRatio = sq(auxFlowObsInnov) / (sq(_flowInnovGate) * auxFlowObsInnovVar);
+            auxFlowTestRatio = sq(auxFlowObsInnov) / (sq(tuning._flowInnovGate) * auxFlowObsInnovVar);
 
             // don't fuse if optical flow data is outside valid range
-            if (max(flowRadXY[0],flowRadXY[1]) < _maxFlowRate) {
+            if (max(flowRadXY[0],flowRadXY[1]) < tuning._maxFlowRate) {
 
                 // correct the state
                 terrainState -= K_OPT * auxFlowObsInnov;
@@ -3681,7 +3308,7 @@ void NavEKF::resetGyroBias(void)
 bool NavEKF::resetHeightDatum(void)
 {
     // if we are using a range finder for height, return false
-    if (_altSource == 1) {
+    if (tuning._altSource == 1) {
         return false;
     }
     // record the old height estimate
@@ -3709,7 +3336,8 @@ uint8_t NavEKF::setInhibitGPS(void)
         return 0;
     }
     if (optFlowDataPresent()) {
-        _fusionModeGPS = 3;
+        tuning._fusionModeGPS = 3;
+//#error writing to a tuning parameter
         return 2;
     } else {
         return 1;
@@ -3722,7 +3350,7 @@ void NavEKF::getEkfControlLimits(float &ekfGndSpdLimit, float &ekfNavVelGainScal
 {
     if (PV_AidingMode == AID_RELATIVE) {
         // allow 1.0 rad/sec margin for angular motion
-        ekfGndSpdLimit = max((_maxFlowRate - 1.0f), 0.0f) * max((terrainState - stateStruct.position[2]), rngOnGnd);
+        ekfGndSpdLimit = max((tuning._maxFlowRate - 1.0f), 0.0f) * max((terrainState - stateStruct.position[2]), rngOnGnd);
         // use standard gains up to 5.0 metres height and reduce above that
         ekfNavVelGainScaler = 4.0f / max((terrainState - stateStruct.position[2]),4.0f);
     } else {
@@ -3773,7 +3401,7 @@ void NavEKF::getMagXYZ(Vector3f &magXYZ) const
 bool NavEKF::getMagOffsets(Vector3f &magOffsets) const
 {
     // compass offsets are valid if we have finalised magnetic field initialisation and magnetic field learning is not prohibited and primary compass is valid
-    if (secondMagYawInit && (_magCal != 2) && _ahrs->get_compass()->healthy(0)) {
+    if (secondMagYawInit && (tuning._magCal != 2) && _ahrs->get_compass()->healthy(0)) {
         magOffsets = _ahrs->get_compass()->get_offsets(0) - stateStruct.body_magfield*1000.0f;
         return true;
     } else {
@@ -3910,9 +3538,9 @@ void NavEKF::SetFlightAndFusionModes()
     // If we are on ground, or in constant position mode, or don't have the right vehicle and sensing to estimate wind, inhibit wind states
     inhibitWindStates = ((!useAirspeed() && !assume_zero_sideslip()) || onGround || constPosMode);
     // request mag calibration for both in-air and manoeuvre threshold options
-    bool magCalRequested = ((_magCal == 0) && !onGround) || ((_magCal == 1) && manoeuvring)  || (_magCal == 3);
+    bool magCalRequested = ((tuning._magCal == 0) && !onGround) || ((tuning._magCal == 1) && manoeuvring)  || (tuning._magCal == 3);
     // deny mag calibration request if we aren't using the compass, are in the pre-arm constant position mode or it has been inhibited by the user
-    bool magCalDenied = !use_compass() || constPosMode || (_magCal == 2);
+    bool magCalDenied = !use_compass() || constPosMode || (tuning._magCal == 2);
     // inhibit the magnetic field calibration if not requested or denied
     inhibitMagStates = (!magCalRequested || magCalDenied);
 
@@ -3947,7 +3575,7 @@ void NavEKF::CovarianceInit()
     // positions
     P[6][6]   = sq(15.0f);
     P[7][7]   = P[6][6];
-    P[8][8]   = sq(_baroAltNoise);
+    P[8][8]   = sq(tuning._baroAltNoise);
     // gyro delta angle biases
     P[9][9] = sq(radians(InitialGyroBiasUncertainty() * dtIMUavg));
     P[10][10] = P[9][9];
@@ -4108,7 +3736,7 @@ void NavEKF::readGpsData()
 
         // estimate when the GPS fix was valid, allowing for GPS processing and other delays
         // ideally we should be using a timing signal from the GPS receiver to set this time
-        gpsDataNew.time_ms = lastTimeGpsReceived_ms - _msecGpsDelay;
+        gpsDataNew.time_ms = lastTimeGpsReceived_ms - tuning._msecGpsDelay;
 
         // read the NED velocity from the GPS
         gpsDataNew.vel = _ahrs->get_gps().velocity();
@@ -4134,7 +3762,7 @@ void NavEKF::readGpsData()
         }
 
         // Check if GPS can output vertical velocity and set GPS fusion mode accordingly
-        if (_ahrs->get_gps().have_vertical_velocity() && _fusionModeGPS == 0) {
+        if (_ahrs->get_gps().have_vertical_velocity() && tuning._fusionModeGPS == 0) {
             useGpsVertVel = true;
         } else {
             useGpsVertVel = false;
@@ -4158,7 +3786,7 @@ void NavEKF::readGpsData()
             // We are by definition at the origin at the instant of alignment so set NE position to zero
             gpsDataNew.pos.zero();
             // If the vehicle is in flight (use arm status to determine) and GPS useage isn't explicitly prohibited, we switch to absolute position mode
-            if (filterArmed && _fusionModeGPS != 3) {
+            if (filterArmed && tuning._fusionModeGPS != 3) {
                 constPosMode = false;
                 PV_AidingMode = AID_ABSOLUTE;
                 gpsNotAvailable = false;
@@ -4183,7 +3811,7 @@ void NavEKF::readGpsData()
         gpsNotAvailable = true;
         if (imuSampleTime_ms - gpsDataNew.time_ms > 200) {
             gpsDataNew.pos.zero();
-            gpsDataNew.time_ms = imuSampleTime_ms-_msecGpsDelay;
+            gpsDataNew.time_ms = imuSampleTime_ms-tuning._msecGpsDelay;
             // save measurement to buffer to be fused later
             StoreGPS();
         }
@@ -4199,7 +3827,7 @@ void NavEKF::readHgtData()
     // check to see if baro measurement has changed so we know if a new measurement has arrived
     if (_baro.get_last_update() != lastHgtReceived_ms) {
         // Don't use Baro height if operating in optical flow mode as we use range finder instead
-        if (_fusionModeGPS == 3 && _altSource == 1) {
+        if (tuning._fusionModeGPS == 3 && tuning._altSource == 1) {
             if ((imuSampleTime_ms - rngValidMeaTime_ms) < 2000) {
                 // adjust range finder measurement to allow for effect of vehicle tilt and height of sensor
                 baroDataNew.hgt = max(rngMea * Tnb_flow.c.z, rngOnGnd);
@@ -4225,7 +3853,7 @@ void NavEKF::readHgtData()
         // it is is reset to last height measurement on disarming in performArmingChecks()
         if (!getTakeoffExpected()) {
             const float gndHgtFiltTC = 0.5f;
-            const float dtBaro = msecHgtAvg*1.0e-3f;
+            const float dtBaro = tuning.msecHgtAvg*1.0e-3f;
             float alpha = constrain_float(dtBaro / (dtBaro+gndHgtFiltTC),0.0f,1.0f);
             meaHgtAtTakeOff += (baroDataDelayed.hgt-meaHgtAtTakeOff)*alpha;
         } else if (filterArmed && getTakeoffExpected()) {
@@ -4238,7 +3866,7 @@ void NavEKF::readHgtData()
         lastHgtReceived_ms = _baro.get_last_update();
 
         // estimate of time height measurement was taken, allowing for delays
-        hgtMeasTime_ms = lastHgtReceived_ms - msecHgtDelay;
+        hgtMeasTime_ms = lastHgtReceived_ms - tuning.msecHgtDelay;
 
         // save baro measurement to buffer to be fused later
         baroDataNew.time_ms = hgtMeasTime_ms;
@@ -4254,7 +3882,7 @@ void NavEKF::readMagData()
         lastMagUpdate = _ahrs->get_compass()->last_update_usec();
 
         // estimate of time magnetometer measurement was taken, allowing for delays
-        magMeasTime_ms = imuSampleTime_ms - msecMagDelay;
+        magMeasTime_ms = imuSampleTime_ms - tuning.msecMagDelay;
 
         // read compass data and scale to improve numerical conditioning
         magDataNew.mag = _ahrs->get_compass()->get_field() * 0.001f;
@@ -4290,7 +3918,7 @@ void NavEKF::readAirSpdData()
         aspeed->last_update_ms() != timeTasReceived_ms) {
         tasDataNew.tas = aspeed->get_airspeed() * aspeed->get_EAS2TAS();
         timeTasReceived_ms = aspeed->last_update_ms();
-        tasDataNew.time_ms = timeTasReceived_ms - msecTasDelay;
+        tasDataNew.time_ms = timeTasReceived_ms - tuning.msecTasDelay;
         newDataTas = true;
         StoreTAS();
         RecallTAS();
@@ -4322,7 +3950,7 @@ void NavEKF::writeOptFlowMeas(uint8_t &rawFlowQuality, Vector2f &rawFlowRates, V
     }
     // check for takeoff if relying on optical flow and zero measurements until takeoff detected
     // if we haven't taken off - constrain position and velocity states
-    if (_fusionModeGPS == 3) {
+    if (tuning._fusionModeGPS == 3) {
         detectOptFlowTakeoff();
     }
     // calculate rotation matrices at mid sample time for flow observations
@@ -4342,7 +3970,7 @@ void NavEKF::writeOptFlowMeas(uint8_t &rawFlowQuality, Vector2f &rawFlowRates, V
         // record time last observation was received so we can detect loss of data elsewhere
         flowValidMeaTime_ms = imuSampleTime_ms;
         // estimate sample time of the measurement
-        ofDataNew.time_ms = imuSampleTime_ms - _msecFLowDelay - flowTimeDeltaAvg_ms/2;
+        ofDataNew.time_ms = imuSampleTime_ms - tuning._msecFlowDelay - tuning.flowTimeDeltaAvg_ms/2;
         // Save data to buffer
         StoreOF();
         // Check for data at the fusion time horizon
@@ -4779,8 +4407,8 @@ void  NavEKF::getFilterStatus(nav_filter_status &status) const
     bool notDeadReckoning = !constVelMode && !constPosMode;
     bool someVertRefData = (!velTimeout && useGpsVertVel) || !hgtTimeout;
     bool someHorizRefData = !(velTimeout && posTimeout && tasTimeout) || doingFlowNav;
-    bool optFlowNavPossible = flowDataValid && (_fusionModeGPS == 3);
-    bool gpsNavPossible = !gpsNotAvailable && (_fusionModeGPS <= 2);
+    bool optFlowNavPossible = flowDataValid && (tuning._fusionModeGPS == 3);
+    bool gpsNavPossible = !gpsNotAvailable && (tuning._fusionModeGPS <= 2);
     bool filterHealthy = healthy() && tiltAlignComplete && yawAlignComplete;
 
     // set individual flags
@@ -4836,7 +4464,7 @@ void NavEKF::performArmingChecks()
 {
     // don't allow filter to arm until it has been running for long enough to stabilise
     prevFilterArmed = filterArmed;
-    filterArmed = ((readyToUseGPS() || _fusionModeGPS == 3) && (imuSampleTime_ms - ekfStartTime_ms) > 1000);
+    filterArmed = ((readyToUseGPS() || tuning._fusionModeGPS == 3) && (imuSampleTime_ms - ekfStartTime_ms) > 1000);
 
     // check to see if arm status has changed and reset states if it has
     if (filterArmed != prevFilterArmed) {
@@ -4872,7 +4500,7 @@ void NavEKF::performArmingChecks()
             meaHgtAtTakeOff = baroDataDelayed.hgt;
             // reset the vertical position state to faster recover from baro errors experienced during touchdown
             stateStruct.position.z = -meaHgtAtTakeOff;
-        } else if (_fusionModeGPS == 3) { // arming when GPS useage has been prohibited
+        } else if (tuning._fusionModeGPS == 3) { // arming when GPS useage has been prohibited
             if (optFlowDataPresent()) {
                 hal.console->printf("EKF is using optical flow\n");
                 PV_AidingMode = AID_RELATIVE; // we have optical flow data and can estimate all vehicle states
@@ -4993,7 +4621,7 @@ bool NavEKF::setOriginLLH(struct Location &loc)
 // determine if a takeoff is expected so that we can compensate for expected barometer errors due to ground effect
 bool NavEKF::getTakeoffExpected()
 {
-    if (expectGndEffectTakeoff && imuSampleTime_ms - takeoffExpectedSet_ms > gndEffectTimeout_ms) {
+    if (expectGndEffectTakeoff && imuSampleTime_ms - takeoffExpectedSet_ms > tuning.gndEffectTimeout_ms) {
         expectGndEffectTakeoff = false;
     }
 
@@ -5012,7 +4640,7 @@ void NavEKF::setTakeoffExpected(bool val)
 // determine if a touchdown is expected so that we can compensate for expected barometer errors due to ground effect
 bool NavEKF::getTouchdownExpected()
 {
-    if (expectGndEffectTouchdown && imuSampleTime_ms - touchdownExpectedSet_ms > gndEffectTimeout_ms) {
+    if (expectGndEffectTouchdown && imuSampleTime_ms - touchdownExpectedSet_ms > tuning.gndEffectTimeout_ms) {
         expectGndEffectTouchdown = false;
     }
 
@@ -5149,7 +4777,7 @@ void NavEKF::detectOptFlowTakeoff(void)
 bool NavEKF::getHeightControlLimit(float &height) const
 {
     // only ask for limiting if we are doing optical flow navigation
-    if (_fusionModeGPS == 3) {
+    if (tuning._fusionModeGPS == 3) {
         // If are doing optical flow nav, ensure the height above ground is within range finder limits after accounting for vehicle tilt and control errors
         height = max(float(_rng.max_distance_cm()) * 0.007f - 1.0f, 1.0f);
         return true;

@@ -26,10 +26,11 @@
 #include <AP_Baro.h>
 #include <AP_Airspeed.h>
 #include <AP_Compass.h>
-#include <AP_Param.h>
 #include <AP_Nav_Common.h>
 #include <GCS_MAVLink.h>
 #include <AP_RangeFinder.h>
+
+#include "AP_NavEKF_Tuning.h"
 
 // #define MATH_CHECK_INDEXES 1
 
@@ -38,7 +39,6 @@
 #if CONFIG_HAL_BOARD == HAL_BOARD_PX4 || CONFIG_HAL_BOARD == HAL_BOARD_VRBRAIN
 #include <systemlib/perf_counter.h>
 #endif
-
 
 class AP_AHRS;
 
@@ -275,7 +275,8 @@ public:
     // this function should not have more than one client
     bool getLastYawResetAngle(float &yawAng);
 
-    static const struct AP_Param::GroupInfo var_info[];
+    // Reference to the global EKF tuning parameters
+    NavEKF_Tuning &tuning;
 
 private:
     const AP_AHRS *_ahrs;
@@ -569,79 +570,9 @@ private:
     // using a simple observer
     void calcOutputStatesFast();
 
-    // EKF Mavlink Tuneable Parameters
-    AP_Float _gpsHorizVelNoise;     // GPS horizontal velocity measurement noise : m/s
-    AP_Float _gpsVertVelNoise;      // GPS vertical velocity measurement noise : m/s
-    AP_Float _gpsHorizPosNoise;     // GPS horizontal position measurement noise m
-    AP_Float _baroAltNoise;         // Baro height measurement noise : m^2
-    AP_Float _magNoise;             // magnetometer measurement noise : gauss
-    AP_Float _easNoise;             // equivalent airspeed measurement noise : m/s
-    AP_Float _windVelProcessNoise;  // wind velocity state process noise : m/s^2
-    AP_Float _wndVarHgtRateScale;   // scale factor applied to wind process noise due to height rate
-    AP_Float _magProcessNoise;      // magnetic field process noise : gauss/sec
-    AP_Float _gyrNoise;             // gyro process noise : rad/s
-    AP_Float _accNoise;             // accelerometer process noise : m/s^2
-    AP_Float _gyroBiasProcessNoise; // gyro bias state process noise : rad/s
-    AP_Float _accelBiasProcessNoise;// accel bias state process noise : m/s^2
-    AP_Int16 _msecGpsDelay;         // effective average delay of GPS measurements relative to time of receipt (msec)
-    AP_Int8  _fusionModeGPS;        // 0 = use 3D velocity, 1 = use 2D velocity, 2 = use no velocity
-    AP_Int8  _gpsVelInnovGate;      // Number of standard deviations applied to GPS velocity innovation consistency check
-    AP_Int8  _gpsPosInnovGate;      // Number of standard deviations applied to GPS position innovation consistency check
-    AP_Int8  _hgtInnovGate;         // Number of standard deviations applied to height innovation consistency check
-    AP_Int8  _magInnovGate;         // Number of standard deviations applied to magnetometer innovation consistency check
-    AP_Int8  _tasInnovGate;         // Number of standard deviations applied to true airspeed innovation consistency check
-    AP_Int8  _magCal;               // Sets activation condition for in-flight magnetometer calibration
-    AP_Int8 _gpsGlitchRadiusMax;    // Maximum allowed discrepancy between inertial and GPS Horizontal position before GPS glitch is declared : m
-    AP_Int8 _gndGradientSigma;      // RMS terrain gradient percentage assumed by the terrain height estimation.
-    AP_Float _flowNoise;            // optical flow rate measurement noise
-    AP_Int8  _flowInnovGate;        // Number of standard deviations applied to optical flow innovation consistency check
-    AP_Int8  _msecFLowDelay;        // effective average delay of optical flow measurements rel to IMU (msec)
-    AP_Int8  _rngInnovGate;         // Number of standard deviations applied to range finder innovation consistency check
-    AP_Float _maxFlowRate;          // Maximum flow rate magnitude that will be accepted by the filter
-    AP_Int8 _fallback;              // EKF-to-DCM fallback strictness. 0 = trust EKF more, 1 = fallback more conservatively.
-    AP_Int8 _altSource;             // Primary alt source during optical flow navigation. 0 = use Baro, 1 = use range finder.
-    AP_Float _gyroScaleProcessNoise;// gyro scale factor state process noise : 1/s
-
-    // Tuning parameters
-    const float gpsNEVelVarAccScale;    // Scale factor applied to NE velocity measurement variance due to manoeuvre acceleration
-    const float gpsDVelVarAccScale;     // Scale factor applied to vertical velocity measurement variance due to manoeuvre acceleration
-    const float gpsPosVarAccScale;      // Scale factor applied to horizontal position measurement variance due to manoeuvre acceleration
-    const uint16_t msecHgtDelay;        // Height measurement delay (msec)
-    const uint16_t msecMagDelay;        // Magnetometer measurement delay (msec)
-    const uint16_t msecTasDelay;        // Airspeed measurement delay (msec)
-    const uint16_t gpsRetryTimeUseTAS;  // GPS retry time with airspeed measurements (msec)
-    const uint16_t gpsRetryTimeNoTAS;   // GPS retry time without airspeed measurements (msec)
-    const uint16_t gpsFailTimeWithFlow; // If we have no GPs for longer than this and we have optical flow, then we will switch across to using optical flow (msec)
-    const uint16_t hgtRetryTimeMode0;   // Height retry time with vertical velocity measurement (msec)
-    const uint16_t hgtRetryTimeMode12;  // Height retry time without vertical velocity measurement (msec)
-    const uint16_t tasRetryTime;        // True airspeed timeout and retry interval (msec)
-    const uint32_t magFailTimeLimit_ms; // number of msec before a magnetometer failing innovation consistency checks is declared failed (msec)
-    const float magVarRateScale;        // scale factor applied to magnetometer variance due to angular rate
-    const float gyroBiasNoiseScaler;    // scale factor applied to gyro bias state process noise when on ground
-    const float accelBiasNoiseScaler;   // scale factor applied to accel bias state process noise when on ground
-    const uint16_t msecGpsAvg;          // average number of msec between GPS measurements
-    const uint16_t msecHgtAvg;          // average number of msec between height measurements
-    const uint16_t msecMagAvg;          // average number of msec between magnetometer measurements
-    const uint16_t msecBetaAvg;         // average number of msec between synthetic sideslip measurements
-    const uint16_t msecBetaMax;         // maximum number of msec between synthetic sideslip measurements
-    const uint16_t msecFlowAvg;         // average number of msec between optical flow measurements
-    const float dtVelPos;               // number of seconds between position and velocity corrections. This should be a multiple of the imu update interval.
-    const float covTimeStepMax;         // maximum time (sec) between covariance prediction updates
-    const float covDelAngMax;           // maximum delta angle between covariance prediction updates
-    const uint32_t TASmsecMax;          // maximum allowed interval between airspeed measurement updates
-    const float DCM33FlowMin;           // If Tbn(3,3) is less than this number, optical flow measurements will not be fused as tilt is too high.
-    const float fScaleFactorPnoise;     // Process noise added to focal length scale factor state variance at each time step
-    const uint8_t flowTimeDeltaAvg_ms;  // average interval between optical flow measurements (msec)
-    const uint32_t flowIntervalMax_ms;  // maximum allowable time between flow fusion events
-
     // measurement buffer sizes
     static const uint32_t IMU_BUFFER_LENGTH = 100;  // number of IMU samples stored in the buffer. Samples*delta_time must be > max sensor delay
     static const uint32_t OBS_BUFFER_LENGTH = 5;    // number of non-IMU sensor samples stored in the buffer.
-
-    // ground effect tuning parameters
-    const uint16_t gndEffectTimeout_ms;      // time in msec that ground effect mode is active after being activated
-    const float gndEffectBaroScaler;    // scaler applied to the barometer observation variance when ground effect mode is active
-
 
     // Variables
     bool statesInitialised;         // boolean true when filter states have been initialised
