@@ -2747,7 +2747,7 @@ void NavEKF2::FuseOptFlow()
             H_LOS[0] = SH_LOS[3]*SH_LOS[2]*SH_LOS[6]-SH_LOS[3]*SH_LOS[0]*SH_LOS[4];
             H_LOS[1] = SH_LOS[3]*SH_LOS[2]*SH_LOS[5];
             H_LOS[2] = SH_LOS[3]*SH_LOS[0]*SH_LOS[1];
-            H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]-q1*q2*2.0);
+            H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]-q1*q2*2.0f);
             H_LOS[4] = -SH_LOS[3]*SH_LOS[0]*(SH_LOS[7]-SH_LOS[8]+SH_LOS[9]-SH_LOS[10]);
             H_LOS[5] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[6];
             H_LOS[8] = SH_LOS[2]*SH_LOS[0]*SH_LOS[13];
@@ -2899,7 +2899,7 @@ void NavEKF2::FuseOptFlow()
             H_LOS[1] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[4]-SH_LOS[3]*SH_LOS[1]*SH_LOS[5];
             H_LOS[2] = SH_LOS[3]*SH_LOS[2]*SH_LOS[0];
             H_LOS[3] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[7]+SH_LOS[8]-SH_LOS[9]-SH_LOS[10]);
-            H_LOS[4] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]+q1*q2*2.0);
+            H_LOS[4] = SH_LOS[3]*SH_LOS[0]*(SH_LOS[11]+q1*q2*2.0f);
             H_LOS[5] = -SH_LOS[3]*SH_LOS[0]*SH_LOS[5];
             H_LOS[8] = -SH_LOS[0]*SH_LOS[1]*SH_LOS[13];
 
