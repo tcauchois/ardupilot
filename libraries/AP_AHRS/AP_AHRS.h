@@ -33,15 +33,12 @@
 
 #include "../AP_OpticalFlow/AP_OpticalFlow.h"
 
-// Copter defaults to EKF on by default, all others off
-#if APM_BUILD_TYPE(APM_BUILD_ArduCopter)
- # define AHRS_EKF_USE_ALWAYS     1
-#else
- # define AHRS_EKF_USE_ALWAYS     0
-#endif
-
+// Copter & plane default to EKF on by default, all others off
+// Copter additionally inhibits fallback
 #if APM_BUILD_TYPE(APM_BUILD_ArduPlane)
 #define AHRS_EKF_USE_DEFAULT    1
+#elif APM_BUILD_TYPE(APM_BUILD_ArduCopter)
+#define AHRS_EKF_USE_DEFAULT    2
 #else
 #define AHRS_EKF_USE_DEFAULT    0
 #endif
@@ -51,8 +48,9 @@
 #define AP_AHRS_YAW_P_MIN  0.05f        // minimum value for AHRS_YAW_P parameter
 
 #define EKF_DO_NOT_USE            0     // Prevents the EKF from being used by the flight controllers
-#define EKF_USE_WITH_FALLBACK     1     // Uses the EKF unless its solution is unhealthy or not initialised. This allows sensor errors to cause reversion.
-#define EKF_USE_WITHOUT_FALLBACK  2     // Uses the EKF unless it encounters numerical processing errors or isn't iniitalised. Sensor errors will not cause reversion.
+#define EKF_USE_WITH_FALLBACK     1     // Uses the EKF unless its solution is unhealthy or not initialised. This allows sensor errors to cause reversion to DCM.
+#define EKF_USE_WITHOUT_FALLBACK  2     // Uses the EKF unless it encounters numerical processing errors or isn't initialised. Sensor errors will not cause reversion. The EKF will revert to DCM.
+#define EKF_USE_PROTOTYPE_WITHOUT_FALLBACK  3     // Uses AP_NavEKF2, the perpetual experimental EKF, unless it encounters numerical processing errors or isn't initialised. Sensor errors will not cause reversion.  NavEKF2 will revert to EKF, then to DCM.
 
 enum AHRS_VehicleClass {
     AHRS_VEHICLE_UNKNOWN,
@@ -377,11 +375,7 @@ protected:
     AP_Int8 _gps_minsats;
     AP_Int8 _gps_delay;
 
-#if AHRS_EKF_USE_ALWAYS
-    static const int8_t _ekf_use = EKF_USE_WITHOUT_FALLBACK;
-#else
     AP_Int8 _ekf_use;
-#endif
 
     // flags structure
     struct ahrs_flags {

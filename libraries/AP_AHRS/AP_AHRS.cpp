@@ -18,10 +18,6 @@
 #include <AP_HAL/AP_HAL.h>
 extern const AP_HAL::HAL& hal;
 
-#if AHRS_EKF_USE_ALWAYS
-const int8_t AP_AHRS::_ekf_use;
-#endif
-
 // table of user settable parameters
 const AP_Param::GroupInfo AP_AHRS::var_info[] PROGMEM = {
 	// index 0 and 1 are for old parameters that are no longer not used
@@ -115,7 +111,7 @@ const AP_Param::GroupInfo AP_AHRS::var_info[] PROGMEM = {
     // NOTE: index 12 was for GPS_DELAY, but now removed, fixed delay
     // of 1 was found to be the best choice
 
-#if AP_AHRS_NAVEKF_AVAILABLE && !AHRS_EKF_USE_ALWAYS
+#if AP_AHRS_NAVEKF_AVAILABLE
     // @Param: EKF_USE
     // @DisplayName: Use NavEKF Kalman filter for attitude and position estimation
     // @Description: This controls whether the NavEKF Kalman filter is used for attitude and position estimation and whether fallback to the DCM algorithm is allowed

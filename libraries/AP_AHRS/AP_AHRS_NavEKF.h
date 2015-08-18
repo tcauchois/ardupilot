@@ -26,6 +26,7 @@
 
 #if HAL_CPU_CLASS >= HAL_CPU_CLASS_150
 #include <AP_NavEKF/AP_NavEKF.h>
+#include <AP_NavEKF2/AP_NavEKF2.h>
 
 #define AP_AHRS_NAVEKF_AVAILABLE 1
 #define AP_AHRS_NAVEKF_SETTLE_TIME_MS 20000     // time in milliseconds the ekf needs to settle after being started
@@ -34,12 +35,14 @@ class AP_AHRS_NavEKF : public AP_AHRS_DCM
 {
 public:
     // Constructor
-AP_AHRS_NavEKF(AP_InertialSensor &ins, AP_Baro &baro, AP_GPS &gps, RangeFinder &rng, NavEKF &_EKF) :
+AP_AHRS_NavEKF(AP_InertialSensor &ins, AP_Baro &baro, AP_GPS &gps, RangeFinder &rng, NavEKF &_EKF, NavEKF2 *_EKF2 = NULL) :
     AP_AHRS_DCM(ins, baro, gps),
         EKF(_EKF),
-        ekf_started(false),
+        EKF2(_EKF2),
+        start_time_ms(0),
         startup_delay_ms(1000),
-        start_time_ms(0)
+        ekf1_started(false),
+        ekf2_started(false)
         {
         }
 
@@ -79,6 +82,8 @@ AP_AHRS_NavEKF(AP_InertialSensor &ins, AP_Baro &baro, AP_GPS &gps, RangeFinder &
 
     NavEKF &get_NavEKF(void) { return EKF; }
     const NavEKF &get_NavEKF_const(void) const { return EKF; }
+    NavEKF2 *get_NavEKF2(void) { return EKF2; }
+    const NavEKF2 *get_NavEKF2_const(void) const { return EKF2; }
 
     // return secondary attitude solution if available, as eulers in radians
     bool get_secondary_attitude(Vector3f &eulers);
@@ -112,7 +117,7 @@ AP_AHRS_NavEKF(AP_InertialSensor &ins, AP_Baro &baro, AP_GPS &gps, RangeFinder &
     // get speed limit
     void getEkfControlLimits(float &ekfGndSpdLimit, float &ekfNavVelGainScaler);
 
-    void set_ekf_use(bool setting);
+    void set_ekf_use(int8_t setting);
 
     // is the AHRS subsystem healthy?
     bool healthy(void) const;
@@ -125,18 +130,27 @@ AP_AHRS_NavEKF(AP_InertialSensor &ins, AP_Baro &baro, AP_GPS &gps, RangeFinder &
     bool getMagOffsets(Vector3f &magOffsets);
 
 private:
-    bool using_EKF(void) const;
+    enum AHRS_selected {
+        AHRS_SELECTED_DCM = 0,
+        AHRS_SELECTED_EKF1 = 1,
+        AHRS_SELECTED_EKF2 = 3,
+    };
+
+    bool vehicle_ekf_checks(nav_filter_status filt_state) const;
+    AHRS_selected using_EKF(void) const;
 
     NavEKF &EKF;
-    bool ekf_started;
-    Matrix3f _dcm_matrix;
+    NavEKF2 *EKF2;
     Vector3f _dcm_attitude;
+    uint32_t start_time_ms;
+    const uint16_t startup_delay_ms;
+    bool ekf1_started;
+    bool ekf2_started;
+    Matrix3f _dcm_matrix;
     Vector3f _gyro_bias;
     Vector3f _gyro_estimate;
     Vector3f _accel_ef_ekf[INS_MAX_INSTANCES];
     Vector3f _accel_ef_ekf_blended;
-    const uint16_t startup_delay_ms;
-    uint32_t start_time_ms;
 };
 #endif
 
