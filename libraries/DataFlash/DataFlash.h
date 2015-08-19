@@ -78,7 +78,8 @@ public:
     void Log_Write_AHRS2(AP_AHRS &ahrs);
     void Log_Write_POS(AP_AHRS &ahrs);
 #if AP_AHRS_NAVEKF_AVAILABLE
-    void Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled);
+    /* index == 0 -> write EKF; index == 1 -> write NKF */
+    void Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled, uint8_t index = 0);
 #endif
     void Log_Write_MavCmd(uint16_t cmd_total, const mavlink_mission_item_t& mav_cmd);
     void Log_Write_Radio(const mavlink_radio_t &packet);
@@ -764,6 +765,18 @@ Format characters in the format string for binary log messages
     { LOG_RPM_MSG, sizeof(log_RPM), \
       "RPM",  "Qff", "TimeUS,rpm1,rpm2" }
 
+#define LOG_NKF_STRUCTURES \
+    { LOG_NKF1_MSG, sizeof(log_EKF1), \
+      "NKF1","QccCffffffccc","TimeUS,Roll,Pitch,Yaw,VN,VE,VD,PN,PE,PD,GX,GY,GZ" }, \
+    { LOG_NKF2_MSG, sizeof(log_EKF2), \
+      "NKF2","Qbbbcchhhhhh","TimeUS,Ratio,AZ1bias,AZ2bias,VWN,VWE,MN,ME,MD,MX,MY,MZ" }, \
+    { LOG_NKF3_MSG, sizeof(log_EKF3), \
+      "NKF3","Qcccccchhhc","TimeUS,IVN,IVE,IVD,IPN,IPE,IPD,IMX,IMY,IMZ,IVT" }, \
+    { LOG_NKF4_MSG, sizeof(log_EKF4), \
+      "NKF4","QcccccccbbBBH","TimeUS,SV,SP,SH,SMX,SMY,SMZ,SVT,OFN,EFE,FS,TS,SS" }, \
+    { LOG_NKF5_MSG, sizeof(log_EKF5), \
+      "NKF5","QBhhhcccCC","TimeUS,normInnov,FIX,FIY,AFI,HAGL,offset,RI,meaRng,errHAGL" },
+
 #if HAL_CPU_CLASS >= HAL_CPU_CLASS_75
 #define LOG_COMMON_STRUCTURES LOG_BASE_STRUCTURES, LOG_EXTRA_STRUCTURES
 #else
@@ -837,7 +850,12 @@ enum LogMessages {
     LOG_IMUDT2_MSG,
     LOG_IMUDT3_MSG,
     LOG_ORGN_MSG,
-    LOG_RPM_MSG
+    LOG_RPM_MSG,
+    LOG_NKF1_MSG,
+    LOG_NKF2_MSG,
+    LOG_NKF3_MSG,
+    LOG_NKF4_MSG,
+    LOG_NKF5_MSG
 };
 
 enum LogOriginType {

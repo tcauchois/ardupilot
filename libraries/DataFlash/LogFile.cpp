@@ -1083,21 +1083,31 @@ void DataFlash_Class::Log_Write_POS(AP_AHRS &ahrs)
 }
 
 #if AP_AHRS_NAVEKF_AVAILABLE
-void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
+void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled, uint8_t index)
 {
+    if(index != 0 && index != 1)
+        return;
+    if(index == 1 && ahrs.get_NavEKF2() == NULL)
+        return;
+
 	// Write first EKF packet
     Vector3f euler;
     Vector3f posNED;
     Vector3f velNED;
-    Vector3f dAngBias;
-    Vector3f dVelBias;
     Vector3f gyroBias;
-    ahrs.get_NavEKF().getEulerAngles(euler);
-    ahrs.get_NavEKF().getVelNED(velNED);
-    ahrs.get_NavEKF().getPosNED(posNED);
-    ahrs.get_NavEKF().getGyroBias(gyroBias);
+    if(index == 0) {
+        ahrs.get_NavEKF().getEulerAngles(euler);
+        ahrs.get_NavEKF().getVelNED(velNED);
+        ahrs.get_NavEKF().getPosNED(posNED);
+        ahrs.get_NavEKF().getGyroBias(gyroBias);
+    } else {
+        ahrs.get_NavEKF2()->getEulerAngles(euler);
+        ahrs.get_NavEKF2()->getVelNED(velNED);
+        ahrs.get_NavEKF2()->getPosNED(posNED);
+        ahrs.get_NavEKF2()->getGyroBias(gyroBias);
+    }
     struct log_EKF1 pkt = {
-        LOG_PACKET_HEADER_INIT(LOG_EKF1_MSG),
+        LOG_PACKET_HEADER_INIT(((index == 0) ? LOG_EKF1_MSG : LOG_NKF1_MSG)),
         time_us : hal.scheduler->micros64(),
         roll    : (int16_t)(100*degrees(euler.x)), // roll angle (centi-deg, displayed as deg due to format string)
         pitch   : (int16_t)(100*degrees(euler.y)), // pitch angle (centi-deg, displayed as deg due to format string)
@@ -1120,13 +1130,21 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector3f wind;
     Vector3f magNED;
     Vector3f magXYZ;
-    ahrs.get_NavEKF().getIMU1Weighting(ratio);
-    ahrs.get_NavEKF().getAccelZBias(az1bias, az2bias);
-    ahrs.get_NavEKF().getWind(wind);
-    ahrs.get_NavEKF().getMagNED(magNED);
-    ahrs.get_NavEKF().getMagXYZ(magXYZ);
+    if(index == 0) {
+        ahrs.get_NavEKF().getIMU1Weighting(ratio);
+        ahrs.get_NavEKF().getAccelZBias(az1bias, az2bias);
+        ahrs.get_NavEKF().getWind(wind);
+        ahrs.get_NavEKF().getMagNED(magNED);
+        ahrs.get_NavEKF().getMagXYZ(magXYZ);
+    } else {
+        ahrs.get_NavEKF2()->getIMU1Weighting(ratio);
+        ahrs.get_NavEKF2()->getAccelZBias(az1bias, az2bias);
+        ahrs.get_NavEKF2()->getWind(wind);
+        ahrs.get_NavEKF2()->getMagNED(magNED);
+        ahrs.get_NavEKF2()->getMagXYZ(magXYZ);
+    }
     struct log_EKF2 pkt2 = {
-        LOG_PACKET_HEADER_INIT(LOG_EKF2_MSG),
+        LOG_PACKET_HEADER_INIT(((index == 0) ? LOG_EKF2_MSG : LOG_NKF2_MSG)),
         time_us : hal.scheduler->micros64(),
         Ratio   : (int8_t)(100*ratio),
         AZ1bias : (int8_t)(100*az1bias),
@@ -1147,9 +1165,14 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector3f posInnov;
     Vector3f magInnov;
     float tasInnov;
-    ahrs.get_NavEKF().getInnovations(velInnov, posInnov, magInnov, tasInnov);
+    if(index == 0) {
+        ahrs.get_NavEKF().getInnovations(velInnov, posInnov, magInnov, tasInnov);
+    } else {
+        float yawInnov;
+        ahrs.get_NavEKF2()->getInnovations(velInnov, posInnov, magInnov, tasInnov, yawInnov);
+    }
     struct log_EKF3 pkt3 = {
-        LOG_PACKET_HEADER_INIT(LOG_EKF3_MSG),
+        LOG_PACKET_HEADER_INIT(((index == 0) ? LOG_EKF3_MSG : LOG_NKF3_MSG)),
         time_us : hal.scheduler->micros64(),
         innovVN : (int16_t)(100*velInnov.x),
         innovVE : (int16_t)(100*velInnov.y),
@@ -1173,12 +1196,19 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
     Vector2f offset;
     uint8_t faultStatus, timeoutStatus;
     nav_filter_status solutionStatus;
-    ahrs.get_NavEKF().getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
-    ahrs.get_NavEKF().getFilterFaults(faultStatus);
-    ahrs.get_NavEKF().getFilterTimeouts(timeoutStatus);
-    ahrs.get_NavEKF().getFilterStatus(solutionStatus);
+    if(index == 0) {
+        ahrs.get_NavEKF().getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+        ahrs.get_NavEKF().getFilterFaults(faultStatus);
+        ahrs.get_NavEKF().getFilterTimeouts(timeoutStatus);
+        ahrs.get_NavEKF().getFilterStatus(solutionStatus);
+    } else {
+        ahrs.get_NavEKF2()->getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
+        ahrs.get_NavEKF2()->getFilterFaults(faultStatus);
+        ahrs.get_NavEKF2()->getFilterTimeouts(timeoutStatus);
+        ahrs.get_NavEKF2()->getFilterStatus(solutionStatus);
+    }
     struct log_EKF4 pkt4 = {
-        LOG_PACKET_HEADER_INIT(LOG_EKF4_MSG),
+        LOG_PACKET_HEADER_INIT(((index == 0) ? LOG_EKF4_MSG : LOG_NKF4_MSG)),
         time_us : hal.scheduler->micros64(),
         sqrtvarV : (int16_t)(100*velVar),
         sqrtvarP : (int16_t)(100*posVar),
@@ -1206,9 +1236,13 @@ void DataFlash_Class::Log_Write_EKF(AP_AHRS_NavEKF &ahrs, bool optFlowEnabled)
         float rngInnov; // range finder innovations
         float range; // measured range
         float gndOffsetErr; // filter ground offset state error
-        ahrs.get_NavEKF().getFlowDebug(normInnov, gndOffset, flowInnovX, flowInnovY, auxFlowInnov, HAGL, rngInnov, range, gndOffsetErr);
+        if(index == 0) {
+            ahrs.get_NavEKF().getFlowDebug(normInnov, gndOffset, flowInnovX, flowInnovY, auxFlowInnov, HAGL, rngInnov, range, gndOffsetErr);
+        } else {
+            ahrs.get_NavEKF2()->getFlowDebug(normInnov, gndOffset, flowInnovX, flowInnovY, auxFlowInnov, HAGL, rngInnov, range, gndOffsetErr);
+        }
         struct log_EKF5 pkt5 = {
-            LOG_PACKET_HEADER_INIT(LOG_EKF5_MSG),
+            LOG_PACKET_HEADER_INIT(((index == 0) ? LOG_EKF5_MSG : LOG_NKF5_MSG)),
             time_us : hal.scheduler->micros64(),
             normInnov : (uint8_t)(min(100*normInnov,255)),
             FIX : (int16_t)(1000*flowInnovX),
