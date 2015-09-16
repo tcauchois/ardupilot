@@ -4823,7 +4823,7 @@ void NavEKF2::send_status_report(mavlink_channel_t chan)
     getVariances(velVar, posVar, hgtVar, magVar, tasVar, offset);
 
     // send message
-    mavlink_msg_ekf_status_report_send(chan, flags, velVar, posVar, hgtVar, magVar.length(), tasVar);
+    mavlink_msg_ekf2_status_report_send(chan, flags, velVar, posVar, hgtVar, magVar.length(), tasVar);
 
 }
 
