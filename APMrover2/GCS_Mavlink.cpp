@@ -541,6 +541,11 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
         rover.send_simstate(chan);
         break;
 
+    case MSG_AHRS3:
+        CHECK_PAYLOAD_SIZE(AHRS3);
+        rover.gcs[chan-MAVLINK_COMM_0].send_ahrs3(rover.ahrs);
+        break;
+
     case MSG_HWSTATUS:
         CHECK_PAYLOAD_SIZE(HWSTATUS);
         rover.send_hwstatus(chan);
@@ -582,6 +587,15 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
 #if AP_AHRS_NAVEKF_AVAILABLE
         CHECK_PAYLOAD_SIZE(EKF_STATUS_REPORT);
         rover.ahrs.get_NavEKF().send_status_report(chan);
+#endif
+        break;
+
+    case MSG_EKF2_STATUS_REPORT:
+#if AP_AHRS_NAVEKF_AVAILABLE
+        if(rover.ahrs.get_NavEKF() != NULL) {
+            CHECK_PAYLOAD_SIZE(EKF2_STATUS_REPORT);
+            rover.ahrs.get_NavEKF2()->send_status_report(chan);
+        }
 #endif
         break;
 
@@ -823,6 +837,8 @@ GCS_MAVLINK::data_stream_send(void)
         send_message(MSG_BATTERY2);
         send_message(MSG_MOUNT_STATUS);
         send_message(MSG_EKF_STATUS_REPORT);
+        send_message(MSG_EKF2_STATUS_REPORT);
+        send_message(MSG_AHRS3);
     }
 }
 

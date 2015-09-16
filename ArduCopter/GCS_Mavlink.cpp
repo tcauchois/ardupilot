@@ -687,6 +687,11 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
         copter.gcs[chan-MAVLINK_COMM_0].send_ahrs2(copter.ahrs);
         break;
 
+    case MSG_AHRS3:
+        CHECK_PAYLOAD_SIZE(AHRS3);
+        copter.gcs[chan-MAVLINK_COMM_0].send_ahrs3(copter.ahrs);
+        break;
+
     case MSG_HWSTATUS:
         CHECK_PAYLOAD_SIZE(HWSTATUS);
         copter.send_hwstatus(chan);
@@ -721,6 +726,13 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
     case MSG_EKF_STATUS_REPORT:
         CHECK_PAYLOAD_SIZE(EKF_STATUS_REPORT);
         copter.ahrs.get_NavEKF().send_status_report(chan);
+        break;
+
+    case MSG_EKF2_STATUS_REPORT:
+        if(copter.ahrs.get_NavEKF2() != NULL) {
+            CHECK_PAYLOAD_SIZE(EKF2_STATUS_REPORT);
+            copter.ahrs.get_NavEKF2()->send_status_report(chan);
+        }
         break;
 
     case MSG_FENCE_STATUS:
@@ -962,6 +974,8 @@ GCS_MAVLINK::data_stream_send(void)
         send_message(MSG_OPTICAL_FLOW);
         send_message(MSG_GIMBAL_REPORT);
         send_message(MSG_EKF_STATUS_REPORT);
+        send_message(MSG_EKF2_STATUS_REPORT);
+        send_message(MSG_AHRS3);
         send_message(MSG_VIBRATION);
         send_message(MSG_RPM);
     }

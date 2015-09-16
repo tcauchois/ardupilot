@@ -231,6 +231,25 @@ void GCS_MAVLINK::send_ahrs2(AP_AHRS &ahrs)
 #endif
 }
 
+// report AHRS3 state
+void GCS_MAVLINK::send_ahrs3(AP_AHRS &ahrs)
+{
+#if AP_AHRS_NAVEKF_AVAILABLE
+    AP_AHRS_NavEKF& ahrs_ekf = static_cast<AP_AHRS_NavEKF&>(ahrs);
+    if(ahrs_ekf.get_NavEKF2() != NULL && ahrs.initialised())
+    {
+        Vector3f euler;
+        struct Location loc {};
+        ahrs_ekf.get_NavEKF2()->getEulerAngles(euler);
+        ahrs_ekf.get_NavEKF2()->getLLH(loc);
+        mavlink_msg_ahrs3_send(chan,
+                euler.x, euler.y, euler.z,
+                loc.alt*1.0e-2f, loc.lat, loc.lng,
+                0.0f, 0.0f, 0.0f, 0.0f);
+    }
+#endif
+}
+
 /*
   handle a MISSION_REQUEST_LIST mavlink packet
  */

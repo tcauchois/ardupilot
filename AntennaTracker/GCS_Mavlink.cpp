@@ -265,6 +265,7 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
         tracker.send_hwstatus(chan);
         break;
 
+    case MSG_AHRS3:
     case MSG_SERVO_OUT:
     case MSG_EXTENDED_STATUS1:
     case MSG_EXTENDED_STATUS2:
@@ -283,6 +284,7 @@ bool GCS_MAVLINK::try_send_message(enum ap_message id)
     case MSG_OPTICAL_FLOW:
     case MSG_GIMBAL_REPORT:
     case MSG_EKF_STATUS_REPORT:
+    case MSG_EKF2_STATUS_REPORT:
     case MSG_PID_TUNING:
     case MSG_VIBRATION:
     case MSG_RPM:

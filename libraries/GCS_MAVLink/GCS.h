@@ -47,6 +47,7 @@ enum ap_message {
     MSG_FENCE_STATUS,
     MSG_AHRS,
     MSG_SIMSTATE,
+    MSG_AHRS3,
     MSG_HWSTATUS,
     MSG_WIND,
     MSG_RANGEFINDER,
@@ -57,6 +58,7 @@ enum ap_message {
     MSG_OPTICAL_FLOW,
     MSG_GIMBAL_REPORT,
     MSG_EKF_STATUS_REPORT,
+    MSG_EKF2_STATUS_REPORT,
     MSG_LOCAL_POSITION,
     MSG_PID_TUNING,
     MSG_VIBRATION,
@@ -128,6 +130,7 @@ public:
     void send_meminfo(void);
     void send_power_status(void);
     void send_ahrs2(AP_AHRS &ahrs);
+    void send_ahrs3(AP_AHRS &ahrs);
     bool send_gps_raw(AP_GPS &gps);
     void send_system_time(AP_GPS &gps);
     void send_radio_in(uint8_t receiver_rssi);
