@@ -108,6 +108,9 @@ public:
         k_param_rssi_range,
         k_param_rc_feel_rp,
         k_param_NavEKF,                 // Extended Kalman Filter Inertial Navigation Group
+#if AP_NAVEKF2_ENABLED == ENABLED
+        k_param_NavEKF2,
+#endif
         k_param_mission,                // mission library
         k_param_rc_13,
         k_param_rc_14,

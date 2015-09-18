@@ -744,6 +744,16 @@
   #  define FRSKY_TELEM_ENABLED          ENABLED
 #endif
 
+// use this to enable AP_NavEKF2 (debug EKF)
+#ifndef AP_NAVEKF2_ENABLED
+  #  define AP_NAVEKF2_ENABLED           DISABLED
+#endif
+// if we turn on AP_NavEKF2, we need to turn off terrain
+#if AP_NAVEKF2_ENABLED == ENABLED
+  #  undef AP_TERRAIN_AVAILABLE
+  #  define AP_TERRAIN_AVAILABLE        DISABLED
+#endif
+
 /*
   build a firmware version string.
   GIT_VERSION comes from Makefile builds
