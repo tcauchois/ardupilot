@@ -177,9 +177,11 @@ void Plane::Log_Write_Attitude(void)
 
 #if AP_AHRS_NAVEKF_AVAILABLE
  #if OPTFLOW == ENABLED
-    DataFlash.Log_Write_EKF(ahrs,optflow.enabled());
+    DataFlash.Log_Write_EKF(ahrs,optflow.enabled(),0);
+    DataFlash.Log_Write_EKF(ahrs,optflow.enabled(),1);
  #else
-    DataFlash.Log_Write_EKF(ahrs,false);
+    DataFlash.Log_Write_EKF(ahrs,false,0);
+    DataFlash.Log_Write_EKF(ahrs,false,1);
  #endif
     DataFlash.Log_Write_AHRS2(ahrs);
 #endif
